@@ -50,3 +50,12 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - **Import** : détection des doublons (adresse canonique), photo de la page récupérée, source mémorisée ; refus des adresses privées à chaque redirection.
 - **Impression** : ingrédients et étapes sur deux colonnes.
 - Logique pure dans `app/lib.js`, testée par `server/test-lib.js` (comme `npm test`).
+
+## Mise en page adaptative (revue UI)
+- **Navigation** : barre d'onglets en bas (téléphone et tablette verticaux), rail à gauche (téléphone horizontal), liens dans l'en-tête (iPad horizontal, portable). Le bouton « ⏱ » d'en-tête crée un minuteur libre.
+- **Liste** : barre collante Filtres · compteur · tri · vignettes/liste ; le tiroir de filtres se termine par « Voir N recettes ».
+- **Fiche** : barre d'actions fixe en bas sur téléphone vertical (Cuisiner en grand, Courses, Favori, « ⋯ Plus ») ; deux colonnes dès 700 px, ingrédients collants ; image plus basse.
+- **Cuisine** : en paysage, texte à gauche et gros boutons Précédent/Suivant à droite ; boutons ≥ 64 px au tactile.
+- **Formulaire** : plein écran sur téléphone, en-tête et Enregistrer toujours visibles.
+- Cibles tactiles ≥ 44 px, zones sûres (encoche, barre d'accueil), focus clavier visible, animations réduites si demandé, fonds opaques pour les couches qui recouvrent du contenu.
+- `node tools/ui-audit.js <url>` rejoue le contrôle automatique sur 6 formats.

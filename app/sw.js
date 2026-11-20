@@ -1,5 +1,5 @@
 // Service worker : réseau d'abord, copie en cache si hors-ligne (recettes, courses, planning lisibles en cuisine).
-const CACHE = 'recettes-v4', SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'data.js', 'lib.js', 'manifest.webmanifest', 'icon-192.png'];
+const CACHE = 'recettes-v5', SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'data.js', 'lib.js', 'manifest.webmanifest', 'icon-192.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => clients.claim())));
 self.addEventListener('fetch', e => {

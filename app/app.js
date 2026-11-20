@@ -105,21 +105,21 @@ function renderList() {
   const rs = filtered(), n = nActive();
   const fc = $('#fcount'); fc.hidden = !n; fc.textContent = n;
   const act = [...F.type, ...F.diet, ...[...F.diff].map(d => DIFF[d]), ...F.method, ...F.season, ...F.coll, ...(F.protein ? ['Riche en protéines'] : [])].map(v => `<span class="tag">${esc(v)}</span>`).join('');
-  $('#main').innerHTML = `<div class="results-bar"><strong>${rs.length} recette${rs.length > 1 ? 's' : ''}</strong>
-    <label>Trier : <select id="sort">${[['rel', 'Pertinence'], ['time', 'Plus rapide'], ['diff', 'Plus facile'], ['az', 'A → Z'], ['stale', 'Pas cuisinée depuis longtemps'], ['rated', 'Mieux notées']].map(([v, l]) => `<option value="${v}" ${F.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
-    ${act ? `<div class="active">${act}</div>` : ''}
+  $('#rcount').textContent = `${rs.length} recette${rs.length > 1 ? 's' : ''}`; $('#sort').value = F.sort; $('#fApply').textContent = `Voir ${rs.length} recette${rs.length > 1 ? 's' : ''}`;
+  $('#main').innerHTML = `${act ? `<div class="active">${act}</div>` : ''}
     ${rs.length ? `<div class="${view === 'grid' ? 'grid' : 'list'}">${rs.map(card).join('')}</div>` : `<div class="empty"><div style="font-size:3rem">🥕</div><p>Aucune recette ne correspond.</p><button class="btn" onclick="document.getElementById('fReset').click()">Réinitialiser les filtres</button></div>`}
     <p style="text-align:center;margin:28px 0 8px"><button class="btn small" id="backup">💾 Sauvegarde &amp; export</button></p>`;
   $('#backup').onclick = openBackup;
-  $('#sort').onchange = e => { F.sort = e.target.value; renderList(); };
 }
+$('#sort').onchange = e => { F.sort = e.target.value; renderList(); };
+$('#fApply').onclick = () => drawer(false);
 $('#main').addEventListener('click', e => { const b = e.target.closest('[data-fav]'); if (b) { e.preventDefault(); toggleFav(b.dataset.fav); } });
 function toggleFav(id) { favs.has(id) ? favs.delete(id) : favs.add(id); store.set('favs', [...favs]); route(); }
 
 function renderDetail(id) {
   const r = byId(id); if (!r) { location.hash = '#/'; return; }
   let n = r.servings;
-  const ingHtml = () => r.ingredients.map((i, k) => `<li><input type="checkbox" id="i${k}"><span>${i.q ? `<b>${fmtQty(i.q * n / r.servings)}</b> ` : ''}${esc(i.u)} ${i.ref ? `<a href="#/r/${esc(i.ref)}" title="Voir la recette de base">${esc(i.n)} ↗</a>` : esc(i.n)}</span></li>`).join('');
+  const ingHtml = () => r.ingredients.map((i, k) => `<li><label><input type="checkbox" id="i${k}"><span>${i.q ? `<b>${fmtQty(i.q * n / r.servings)}</b> ` : ''}${esc(i.u)} ${i.ref ? `<a href="#/r/${esc(i.ref)}" title="Voir la recette de base">${esc(i.n)} ↗</a>` : esc(i.n)}</span></label></li>`).join('');
   $('#main').innerHTML = `<div class="detail"><a class="back" href="#/">← Toutes les recettes</a>
   <div class="hero">${thumb(r)}<div class="info"><div class="chips">${r.diets.map(d => `<span class="tag">${esc(d)}</span>`).join('')}<span class="tag">${esc(r.type)}</span></div>
   <h1>${esc(r.title)}</h1>
@@ -128,7 +128,7 @@ function renderDetail(id) {
   <div class="tags">${r.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
   ${(r.seasons || []).length + (r.collections || []).length ? `<div class="tags">${(r.seasons || []).map(x => `<span class="tag">🌿 ${esc(x)}</span>`).join('')}${(r.collections || []).map(x => `<span class="tag">📁 ${esc(x)}</span>`).join('')}</div>` : ''}
   ${r.source && /^https?:\/\//.test(r.source) ? `<div class="meta" style="margin-top:6px">🔗 <a href="${esc(r.source)}" target="_blank" rel="noopener noreferrer">${esc(hostOf(r.source))}</a></div>` : ''}
-  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="edit">✏️ Modifier</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] || (serverMode && r.photo) ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? `<button class="btn" id="del">${!serverMode && window.RECIPES.some(b => b.id === r.id) ? '↩ Rétablir l\'original' : '🗑 Supprimer'}</button>` : ''}</div></div></div>
+  <div class="toolbar detail-actions"><button class="btn primary" id="cookmode">👩‍🍳 <span>Cuisiner</span></button><button class="btn" id="shop">🛒 <span>Courses</span></button><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥' : '♡'} <span class="hide-s">Favori</span></button><details class="more"><summary class="btn" aria-label="Plus d'actions">⋯<span class="hide-s"> Plus</span></summary><div class="menu"><button class="btn" id="edit">✏️ Modifier</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] || (serverMode && r.photo) ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? `<button class="btn" id="del">${!serverMode && window.RECIPES.some(b => b.id === r.id) ? '↩ Rétablir l\'original' : '🗑 Supprimer'}</button>` : ''}</div></details></div></div></div>
   <div class="cols"><section class="panel"><h2>Ingrédients</h2><div class="servings"><button id="m" aria-label="Moins">−</button><b id="n">${fmtQty(n)}</b> personnes <button id="p" aria-label="Plus">+</button></div><details class="pan" id="pan"><summary>📐 Adapter à mon moule</summary><div id="panbody"></div></details><ul class="ing" id="ing">${ingHtml()}</ul><div id="subs"></div><div id="nutri"></div></section>
   <section class="panel"><h2>Préparation</h2><ol class="steps">${r.steps.map((s, k) => `<li data-k="${k}"><div><span>${esc(s.t)}</span><div class="chiprow">${s.temp ? `<span class="pill temp">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill">${s.kind === 'repos' ? '💤 Repos' : '🔥 Cuisson'} ${fmtMin(s.timer)}</span><button class="tbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur</button>` : ''}</div></div></li>`).join('')}</ol></section></div><section class="panel" id="journal" style="margin-top:24px"></section></div>`;
   renderJournal(r);
@@ -200,14 +200,14 @@ const saveTimers = () => { try { localStorage.setItem('rec.timers', JSON.stringi
 function beep() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); [0, .25, .5].forEach(t => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 880; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(.2, actx.currentTime + t); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + t + .2); o.start(actx.currentTime + t); o.stop(actx.currentTime + t + .22); }); navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {} }
 const clock = ms => { const s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600); return (h ? h + ':' : '') + String(Math.floor(s % 3600 / 60)).padStart(h ? 2 : 1, '0') + ':' + String(s % 60).padStart(2, '0'); };
 function drawTimers() {
-  $('#timers').innerHTML = timers.map((t, i) => `<div class="timer ${t.done ? 'ring' : ''}"><div class="clock">${clock(t.end - Date.now())}</div><div class="lbl">${t.done ? '⏰ Terminé ! ' : ''}${esc(t.label)}</div>${t.done ? `<button class="btn small" data-snooze="${i}" title="Relancer 1 minute">+1 min</button>` : ''}<button class="btn small" data-x="${i}" aria-label="${t.done ? 'Fermer' : 'Arrêter'}">${t.done ? 'OK' : '✕'}</button></div>`).join('') + '<button class="timer-add" id="tadd" title="Nouveau minuteur" aria-label="Nouveau minuteur">⏱ +</button>';
+  $('#timers').innerHTML = timers.map((t, i) => `<div class="timer ${t.done ? 'ring' : ''}"><div class="clock">${clock(t.end - Date.now())}</div><div class="lbl">${t.done ? '⏰ Terminé ! ' : ''}${esc(t.label)}</div>${t.done ? `<button class="btn small" data-snooze="${i}" title="Relancer 1 minute">+1 min</button>` : ''}<button class="btn small" data-x="${i}" aria-label="${t.done ? 'Fermer' : 'Arrêter'}">${t.done ? 'OK' : '✕'}</button></div>`).join(''); const tc = $('#tcount'); tc.hidden = !timers.length; tc.textContent = timers.length;
 }
+$('#timerOpen').onclick = () => openTimerForm();
 const updateClocks = () => $('#timers').querySelectorAll('.clock').forEach((el, i) => { if (timers[i]) el.textContent = clock(timers[i].end - Date.now()); }); // sans refaire le DOM : un clic n'est jamais perdu
 $('#timers').addEventListener('click', e => {
   const x = e.target.closest('[data-x]'), z = e.target.closest('[data-snooze]');
   if (x) { timers.splice(+x.dataset.x, 1); saveTimers(); drawTimers(); }
   else if (z) { const t = timers[+z.dataset.snooze]; t.end = Date.now() + 60000; t.done = false; saveTimers(); drawTimers(); }
-  else if (e.target.closest('#tadd')) openTimerForm();
 });
 function openTimerForm() {
   const m = $('#modal'); m.hidden = false;
@@ -241,7 +241,7 @@ function openForm(edit) {
   const m = $('#modal'); m.hidden = false; let importMeta = null, importedPhoto = null;
   const types = ['Plat', 'Entrée', 'Dessert', 'Petit-déjeuner', 'Boisson', 'Base']; if (edit && !types.includes(edit.type)) types.push(edit.type);
   const opt = a => a.map(v => `<option>${esc(v)}</option>`).join('');
-  m.innerHTML = `<form class="mbox" id="nf"><h2>${edit ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
+  m.innerHTML = `<form class="mbox full" id="nf"><div class="mhead"><h2>${edit ? 'Modifier la recette' : 'Nouvelle recette'}</h2><button type="button" class="btn icon" id="cancel2" aria-label="Fermer">✕</button></div>
   ${edit ? '' : `<div class="panel" style="margin-bottom:14px"><b>✨ Importer</b> <small id="imsg" style="color:var(--muted)">depuis une URL ou une photo (nécessite le serveur)</small><div class="toolbar" style="margin-top:8px"><input id="iurl" type="url" placeholder="https://…" style="flex:1;min-width:180px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button type="button" class="btn" id="igo">Importer l'URL</button><label class="btn">📸 Photo / scan<input id="iph" type="file" accept="image/*" capture="environment" hidden></label></div></div>`}
   <div class="fld"><label>Titre</label><input name="title" required></div>
   <div class="row2"><div class="fld"><label>Type</label><select name="type">${opt(types)}</select></div>
@@ -256,8 +256,8 @@ function openForm(edit) {
   <div class="fld"><label>Ingrédients — un par ligne : « 200 g farine ». Pour inclure une recette de base : « 1 @Pâte brisée vegan »</label><textarea name="ing" rows="6" placeholder="200 g farine&#10;2 oignons"></textarea></div>
   <div class="fld"><label>Étapes — une par ligne. Optionnel : « texte | 180°C | 25 min » (ajouter « repos » après les minutes pour un temps de repos)</label><textarea name="steps" rows="6" placeholder="Préchauffer et mélanger.&#10;Cuire au four | 180°C | 25 min&#10;Laisser tiédir | 10 min repos"></textarea></div>
   <div class="fld"><label>${edit ? 'Nouvelle photo (vide = garder l\'actuelle)' : 'Photo'}</label><input name="photo" type="file" accept="image/*"></div>
-  <div class="toolbar"><button class="btn primary">Enregistrer</button><button type="button" class="btn" id="cancel">Annuler</button></div></form>`;
-  $('#cancel').onclick = () => { m.hidden = true; };
+  <div class="toolbar mfoot"><button class="btn primary">Enregistrer</button><button type="button" class="btn" id="cancel">Annuler</button></div></form>`;
+  $('#cancel').onclick = $('#cancel2').onclick = () => { m.hidden = true; };
   const fill = r => { const f = $('#nf').elements, set = (k, v) => { f[k].value = v; };
     set('title', r.title); set('type', r.type); set('difficulty', r.difficulty); set('servings', r.servings); set('prep', r.prep); set('cook', r.cook); set('rest', r.rest);
     set('diets', (r.diets || []).join(', ')); set('method', (r.method || []).join(', ')); set('tags', (r.tags || []).join(', ')); set('collections', (r.collections || []).join(', '));
@@ -328,6 +328,11 @@ function openBackup() {
     m.hidden = true; buildFilters(); updateBadge(); route(); toast(`✅ ${added} recette${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''}`);
   };
 }
+// Menu « Plus » : se ferme au clic ailleurs ; fenêtres courtes : un clic sur le fond les ferme (jamais le formulaire, pour ne pas perdre la saisie)
+document.addEventListener('click', e => { document.querySelectorAll('details.more[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.menu button')) d.open = false; }); });
+$('#modal').addEventListener('click', e => { if (e.target.id === 'modal' && !$('#nf')) $('#modal').hidden = true; });
+const setPlaceholder = () => { $('#q').placeholder = innerWidth > 640 ? 'Rechercher une recette, un ingrédient, une méthode…' : 'Rechercher…'; };
+addEventListener('resize', setPlaceholder); setPlaceholder();
 addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; drawer(false); } if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); $('#q').focus(); } });
 
 // ---------- notes et historique ----------
@@ -407,7 +412,7 @@ const AISLES = [['🥬 Fruits & légumes', /carotte|oignon|\bail\b|poireau|tomat
   ['🥫 Épicerie', /./]];
 const aisle = n => AISLES.find(([, re]) => re.test(n))[0];
 const shopList = () => store.get('shop', []);
-function updateBadge() { const n = shopList().filter(x => !x.done).length, b = $('#shopc'); b.hidden = !n; b.textContent = n; }
+function updateBadge() { const n = shopList().filter(x => !x.done).length; document.querySelectorAll('.shopc').forEach(b => { b.hidden = !n; b.textContent = n; }); }
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2200); }
 const pantry = () => store.get('pantry', []);
 const hasIng = (i, haves) => { const k = keyName(i.n); return k.length >= 3 && haves.some(h => h.length >= 3 && (k.includes(h) || h.includes(k))); };
@@ -426,7 +431,7 @@ function renderShop() {
   list.forEach((x, i) => (groups[aisle(x.name)] = groups[aisle(x.name)] || []).push([x, i]));
   $('#main').innerHTML = `<div class="detail"><h1>🛒 Liste de courses</h1>
   <form class="toolbar" id="sadd" style="margin:12px 0"><input id="snew" placeholder="Ajouter un article…" style="flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button class="btn primary">Ajouter</button></form>
-  ${list.length ? Object.keys(groups).sort().map(g => `<section class="panel" style="margin-bottom:14px"><h2>${g}</h2><ul class="ing">${groups[g].map(([x, i]) => `<li class="${x.done ? 'done' : ''}"><input type="checkbox" data-si="${i}" ${x.done ? 'checked' : ''}><span>${(([a, u]) => `${a ? `<b>${a}</b> ` : ''}${esc(u)}`)(itemQty(x))} ${esc(x.name)}<br><small style="color:var(--muted)">${x.from.map(esc).join(', ')}</small></span><button class="btn small" data-sd="${i}" style="margin-left:auto" aria-label="Retirer">✕</button></li>`).join('')}</ul></section>`).join('') : '<div class="empty"><div style="font-size:3rem">🛒</div><p>Votre liste est vide.<br>Ajoutez une recette depuis sa fiche, ou le planning de la semaine.</p></div>'}
+  ${list.length ? `<div class="aisles">${Object.keys(groups).sort().map(g => `<section class="panel"><h2>${g}</h2><ul class="ing">${groups[g].map(([x, i]) => `<li class="${x.done ? 'done' : ''}"><label><input type="checkbox" data-si="${i}" ${x.done ? 'checked' : ''}><span>${(([a, u]) => `${a ? `<b>${a}</b> ` : ''}${esc(u)}`)(itemQty(x))} ${esc(x.name)}<br><small style="color:var(--muted)">${x.from.map(esc).join(', ')}</small></span></label><button class="btn small" data-sd="${i}" aria-label="Retirer">✕</button></li>`).join('')}</ul></section>`).join('')}</div>` : '<div class="empty"><div style="font-size:3rem">🛒</div><p>Votre liste est vide.<br>Ajoutez une recette depuis sa fiche, ou le planning de la semaine.</p></div>'}
   <div class="toolbar"><button class="btn" id="sclean">Retirer les cochés</button><button class="btn" id="sclear">Tout vider</button><button class="btn" id="sshare">📋 Copier / partager</button></div></div>`;
   const save = l => { store.set('shop', l); updateBadge(); renderShop(); };
   $('#sadd').onsubmit = e => { e.preventDefault(); const v = $('#snew').value.trim(); if (v) save([...list, { key: 'm|' + norm(v), name: v, u: '', q: 0, done: false, from: ['Ajout manuel'] }]); };
@@ -513,7 +518,8 @@ function pickRecipe(slotKey) {
 
 // ---------- routeur ----------
 let ready = false;
-function route() { if (!ready) return; if (location.hash !== '#/planning') planUndo = null; const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : h === '#/frigo' ? 'fridge' : 'list'; m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : h === '#/frigo' ? renderFridge() : renderList(); }
+function route() { if (!ready) return; if (location.hash !== '#/planning') planUndo = null; const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : h === '#/frigo' ? 'fridge' : 'list';
+  document.querySelectorAll('[data-nav]').forEach(a => { const cur = a.dataset.nav === (document.body.dataset.page === 'detail' ? 'list' : document.body.dataset.page); cur ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'); }); m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : h === '#/frigo' ? renderFridge() : renderList(); }
 addEventListener('hashchange', route);
 
 function syncDirty() { // renvoie au serveur ce qui a été modifié hors-ligne
