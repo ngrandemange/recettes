@@ -1,3 +1,19 @@
+# Mode retenu : réseau local uniquement (aucune exposition Internet)
+
+Accès : `http://<ip-du-nas>:8090` depuis l'iPhone ou le portable, en Wi-Fi maison. Pas de certificat, pas de proxy, pas de service externe.
+
+**Vérifications à faire une fois**
+- **Box/routeur** : aucune redirection de port vers le NAS (ni 8090, ni 80/443) ; UPnP désactivé sur la box et dans DSM (*Panneau de configuration → Accès externe → Configuration du routeur*).
+- **Pare-feu DSM** (*Sécurité → Pare-feu*) : autoriser le port 8090 uniquement depuis votre sous-réseau local (ex. `192.168.1.0/24`), refuser le reste. Seconde barrière si une redirection était ajoutée par erreur.
+- **Test** : depuis l'iPhone en 4G/5G (Wi-Fi coupé), `http://<votre-ip-publique>:8090` ne doit pas répondre.
+- **Gardez `APP_PASSWORD`** : il protège contre un appareil invité sur le Wi-Fi. En clair sur le réseau local, c'est un risque accepté.
+- **Adresse stable** : réservation DHCP du NAS dans la box, ou `http://<nom-du-nas>.local:8090` (Bonjour activé dans *Services de fichiers → Avancé*).
+
+**Conséquence de l'absence de HTTPS** : Safari refuse le service worker. Donc pas de mode hors-ligne et pas d'écran maintenu allumé. Hors du Wi-Fi maison, l'app est de toute façon injoignable.
+**Courses au supermarché** : avant de partir, bouton « 📋 Copier / partager » de la liste, puis coller dans Notes ou Rappels de l'iPhone. (Seule alternative sans service externe : une autorité de certification privée, voir plus bas.)
+
+---
+
 # Déploiement avec nas-deploy (Synology, recommandé)
 
 Le dépôt contient déjà `deploy.json` (profil validé avec le schéma de nas-deploy), `package.json` (la version vient de là) et le `Dockerfile`.
