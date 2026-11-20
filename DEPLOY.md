@@ -1,4 +1,20 @@
-# Hébergement (Fly.io, ~2-3 €/mois, volume persistant pour SQLite)
+# Déploiement sur NAS (Docker)
+
+```bash
+cp .env.example .env     # puis éditer : APP_PASSWORD (obligatoire), ANTHROPIC_API_KEY (optionnel)
+docker compose up -d --build
+```
+- Données : `./data/recettes.db` + `./data/backups/` (copie quotidienne, 7 jours). Sauvegardez ce dossier avec vos tâches NAS habituelles.
+- Santé : `GET /healthz` (sans mot de passe). Image multi-architecture (Node 22), OK sur x86 comme ARM.
+- Le port 8080 (variable `HOST_PORT`) est à publier **derrière un reverse proxy HTTPS**.
+
+## HTTPS : indispensable pour l'iPhone
+Sur `http://` (hors localhost), Safari refuse le service worker et le Wake Lock : plus d'installation en app, plus de mode hors-ligne, et l'écran peut se verrouiller en mode cuisine. Le mot de passe (HTTP Basic) y circulerait aussi en clair.
+Options courantes : le reverse proxy intégré du NAS (Synology / QNAP) avec certificat Let's Encrypt, Caddy ou Traefik, ou **Tailscale** (`tailscale serve --bg 8080` donne un HTTPS privé sans ouvrir de port sur Internet — le plus simple pour une app perso).
+Si le proxy est devant, il doit transmettre `X-Forwarded-For` (déjà pris en compte pour la limite d'imports).
+
+---
+# Alternative : Fly.io
 
 ## Méthode rapide
 Prérequis : un compte Fly.io et `flyctl` installé (`brew install flyctl`).

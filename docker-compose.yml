@@ -1,0 +1,12 @@
+# Déploiement sur NAS (ou n'importe quel hôte Docker) : docker compose up -d --build
+services:
+  recettes:
+    build: .
+    image: mes-recettes:latest
+    container_name: mes-recettes
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-8080}:8080"      # à placer derrière votre reverse proxy HTTPS
+    env_file: .env                     # APP_PASSWORD, ANTHROPIC_API_KEY (voir .env.example)
+    volumes:
+      - ./data:/data                   # base SQLite + sauvegardes automatiques (/data/backups)
