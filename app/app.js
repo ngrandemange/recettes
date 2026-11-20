@@ -1,9 +1,14 @@
 (() => {
 'use strict';
 const $ = (s, el = document) => el.querySelector(s);
+const SK = new Set(['favs', 'photos', 'shop', 'plan']); // clés stockées côté serveur quand il est disponible
+let serverMode = false, serverRecipes = null, cache = {};
 const store = {
-  get(k, d) { try { const v = localStorage.getItem('rec.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem('rec.' + k, JSON.stringify(v)); } catch (e) { alert('Stockage plein : photo trop lourde ?'); } }
+  get(k, d) { if (serverMode && SK.has(k)) return k in cache ? cache[k] : d; try { const v = localStorage.getItem('rec.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
+  set(k, v) {
+    if (serverMode && SK.has(k)) { cache[k] = v; fetch('/api/kv/' + k, { method: 'PUT', body: JSON.stringify(v) }).catch(() => {}); return; }
+    try { localStorage.setItem('rec.' + k, JSON.stringify(v)); } catch (e) { alert('Stockage plein : photo trop lourde ?'); }
+  }
 };
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const norm = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -11,10 +16,8 @@ const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? String(m % 60).
 const fmtQty = q => { if (!q) return ''; const r = Math.round(q * 100) / 100; return String(r).replace('.', ','); };
 const DIFF = ['', 'Facile', 'Moyen', 'Difficile'];
 
-let userRecipes = store.get('user', []);
-let photos = store.get('photos', {});
-let favs = new Set(store.get('favs', []));
-const all = () => [...userRecipes, ...window.RECIPES].map(r => ({ ...r, total: r.prep + r.cook + r.rest, photo: photos[r.id] || r.photo }));
+let userRecipes = [], photos = {}, favs = new Set();
+const all = () => [...userRecipes, ...(serverRecipes || window.RECIPES)].map(r => ({ ...r, total: r.prep + r.cook + r.rest, photo: photos[r.id] || r.photo }));
 const byId = id => all().find(r => r.id === id);
 
 // ---------- thèmes & vue ----------
@@ -23,7 +26,7 @@ setTheme(store.get('theme', matchMedia('(prefers-color-scheme: dark)').matches ?
 document.querySelectorAll('[data-th]').forEach(b => b.onclick = () => setTheme(b.dataset.th));
 addEventListener('message', e => { if (e.data && e.data.theme) setTheme(e.data.theme); });
 let view = store.get('view', 'grid');
-function setView(v) { view = v; store.set('view', v); $('#vGrid').classList.toggle('on', v === 'grid'); $('#vList').classList.toggle('on', v === 'list'); if (!location.hash.startsWith('#/r/')) renderList(); }
+function setView(v) { view = v; store.set('view', v); $('#vGrid').classList.toggle('on', v === 'grid'); $('#vList').classList.toggle('on', v === 'list'); if (document.body.dataset.page === 'list') renderList(); }
 $('#vGrid').onclick = () => setView('grid'); $('#vList').onclick = () => setView('list');
 
 // ---------- filtres ----------
@@ -103,17 +106,18 @@ function renderDetail(id) {
   <div class="stats"><div class="stat"><b>${fmtMin(r.prep)}</b><span>Préparation</span></div><div class="stat"><b>${fmtMin(r.cook)}</b><span>Cuisson</span></div>${r.rest ? `<div class="stat"><b>${fmtMin(r.rest)}</b><span>Repos</span></div>` : ''}<div class="stat"><b>${fmtMin(r.total)}</b><span>Total</span></div><div class="stat"><b>${DIFF[r.difficulty]}</b><span>Difficulté</span></div></div>
   <div class="meta">🔥 ${r.method.map(esc).join(' · ')}</div>
   <div class="tags">${r.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
-  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${userRecipes.some(u => u.id === r.id) ? '<button class="btn" id="del">🗑 Supprimer</button>' : ''}</div></div></div>
+  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? '<button class="btn" id="del">🗑 Supprimer</button>' : ''}</div></div></div>
   <div class="cols"><section class="panel"><h2>Ingrédients</h2><div class="servings"><button id="m" aria-label="Moins">−</button><b id="n">${n}</b> personnes <button id="p" aria-label="Plus">+</button></div><ul class="ing" id="ing">${ingHtml()}</ul></section>
   <section class="panel"><h2>Préparation</h2><ol class="steps">${r.steps.map((s, k) => `<li data-k="${k}"><div><span>${esc(s.t)}</span><div class="chiprow">${s.temp ? `<span class="pill temp">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill">${s.kind === 'repos' ? '💤 Repos' : '🔥 Cuisson'} ${fmtMin(s.timer)}</span><button class="tbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur</button>` : ''}</div></div></li>`).join('')}</ol></section></div></div>`;
   $('#ing').onchange = e => e.target.closest('li').classList.toggle('done', e.target.checked);
   const upd = d => { n = Math.max(1, n + d); $('#n').textContent = n; $('#ing').innerHTML = ingHtml(); };
   $('#m').onclick = () => upd(-1); $('#p').onclick = () => upd(1);
   $('#print').onclick = () => print();
+  $('#shop').onclick = () => addToShop(r, n);
   document.querySelectorAll('.steps li').forEach(li => li.addEventListener('dblclick', () => li.classList.toggle('done')));
   $('#photo').onchange = e => resizePhoto(e.target.files[0]).then(d => { photos[r.id] = d; store.set('photos', photos); route(); });
   if ($('#rmphoto')) $('#rmphoto').onclick = () => { delete photos[r.id]; store.set('photos', photos); route(); };
-  if ($('#del')) $('#del').onclick = () => { if (confirm('Supprimer cette recette ?')) { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); location.hash = '#/'; } };
+  if ($('#del')) $('#del').onclick = async () => { if (confirm('Supprimer cette recette ?')) { if (serverMode) { await fetch('/api/recipes/' + r.id, { method: 'DELETE' }); await reloadServer(); } else { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); } buildFilters(); location.hash = '#/'; } };
   scrollTo(0, 0);
 }
 function resizePhoto(file, m = 900) {
@@ -170,13 +174,81 @@ $('#btnNew').onclick = () => {
     const file = f.get('photo');
     const r = { id: 'u' + Date.now(), title: f.get('title'), emoji: '🍽️', hue: Math.floor(Math.random() * 360), type: f.get('type'), diets: list('diets'), difficulty: +f.get('difficulty'), prep: +f.get('prep'), cook: +f.get('cook'), rest: +f.get('rest'), method: list('method'), servings: +f.get('servings') || 1, tags: [], ingredients: ing, steps };
     if (file && file.size) r.photo = await resizePhoto(file);
-    userRecipes.unshift(r); store.set('user', userRecipes); m.hidden = true; buildFilters(); location.hash = '#/r/' + r.id;
+    if (serverMode) { const ph = r.photo; delete r.photo; const j = await (await fetch('/api/recipes', { method: 'POST', body: JSON.stringify({ recipe: r, kind: 'manual' }) })).json(); r.id = j.id; if (ph) { photos[r.id] = ph; store.set('photos', photos); } await reloadServer(); }
+    else { userRecipes.unshift(r); store.set('user', userRecipes); }
+    m.hidden = true; buildFilters(); location.hash = '#/r/' + r.id;
   };
 };
 addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; drawer(false); } if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); $('#q').focus(); } });
 
+// ---------- liste de courses ----------
+const AISLES = [['🥬 Fruits & légumes', /carotte|oignon|\bail\b|poireau|tomate|poivron|banane|citron|basilic|épinard|potimarron|pomme de terre|gingembre|persil|courgette|champignon|salade|avocat|ciboulette/i],
+  ['🧊 Frais', /tofu|seitan|tempeh|pâte brisée|yaourt|margarine/i],
+  ['🥫 Épicerie', /./]];
+const aisle = n => AISLES.find(([, re]) => re.test(n))[0];
+const shopList = () => store.get('shop', []);
+function updateBadge() { const n = shopList().filter(x => !x.done).length, b = $('#shopc'); b.hidden = !n; b.textContent = n; }
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2200); }
+function addToShop(r, n) {
+  const list = shopList(), k = n / r.servings;
+  r.ingredients.forEach(i => {
+    const key = norm(i.n) + '|' + i.u, ex = list.find(x => x.key === key && !x.done), q = (i.q || 0) * k;
+    if (ex) { ex.q += q; if (!ex.from.includes(r.title)) ex.from.push(r.title); } else list.push({ key, name: i.n, u: i.u, q, done: false, from: [r.title] });
+  });
+  store.set('shop', list); updateBadge(); toast('🛒 « ' + r.title + ' » ajoutée à la liste');
+}
+function renderShop() {
+  const list = shopList(), groups = {};
+  list.forEach((x, i) => (groups[aisle(x.name)] = groups[aisle(x.name)] || []).push([x, i]));
+  $('#main').innerHTML = `<div class="detail"><h1>🛒 Liste de courses</h1>
+  <form class="toolbar" id="sadd" style="margin:12px 0"><input id="snew" placeholder="Ajouter un article…" style="flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button class="btn primary">Ajouter</button></form>
+  ${list.length ? Object.keys(groups).sort().map(g => `<section class="panel" style="margin-bottom:14px"><h2>${g}</h2><ul class="ing">${groups[g].map(([x, i]) => `<li class="${x.done ? 'done' : ''}"><input type="checkbox" data-si="${i}" ${x.done ? 'checked' : ''}><span>${x.q ? `<b>${fmtQty(x.q)}</b> ` : ''}${esc(x.u)} ${esc(x.name)}<br><small style="color:var(--muted)">${x.from.map(esc).join(', ')}</small></span><button class="btn small" data-sd="${i}" style="margin-left:auto" aria-label="Retirer">✕</button></li>`).join('')}</ul></section>`).join('') : '<div class="empty"><div style="font-size:3rem">🛒</div><p>Votre liste est vide.<br>Ajoutez une recette depuis sa fiche, ou le planning de la semaine.</p></div>'}
+  <div class="toolbar"><button class="btn" id="sclean">Retirer les cochés</button><button class="btn" id="sclear">Tout vider</button><button class="btn" id="sshare">📋 Copier / partager</button></div></div>`;
+  const save = l => { store.set('shop', l); updateBadge(); renderShop(); };
+  $('#sadd').onsubmit = e => { e.preventDefault(); const v = $('#snew').value.trim(); if (v) save([...list, { key: 'm|' + norm(v), name: v, u: '', q: 0, done: false, from: ['Ajout manuel'] }]); };
+  $('#main').querySelectorAll('[data-si]').forEach(c => c.onchange = () => { list[c.dataset.si].done = c.checked; save(list); });
+  $('#main').querySelectorAll('[data-sd]').forEach(c => c.onclick = () => { list.splice(c.dataset.sd, 1); save(list); });
+  $('#sclean').onclick = () => save(list.filter(x => !x.done));
+  $('#sclear').onclick = () => confirm('Vider la liste ?') && save([]);
+  $('#sshare').onclick = async () => { const t = list.filter(x => !x.done).map(x => `- ${[x.q ? fmtQty(x.q) : '', x.u, x.name].filter(Boolean).join(' ')}`).join('\n'); try { navigator.share ? await navigator.share({ title: 'Courses', text: t }) : (await navigator.clipboard.writeText(t), toast('Copié !')); } catch {} };
+}
+
+// ---------- planning de la semaine ----------
+let planOff = 0;
+const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'], SLOTS = [['midi', '☀️ Midi'], ['soir', '🌙 Soir']];
+const dayKey = d => d.toISOString().slice(0, 10);
+function weekDays() { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7 + planOff * 7); return DAYS.map((_, i) => { const x = new Date(d); x.setDate(d.getDate() + i); return x; }); }
+function renderPlan() {
+  const plan = store.get('plan', {}), days = weekDays(), fmt = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  $('#main').innerHTML = `<div class="detail"><h1>📅 Planning</h1>
+  <div class="toolbar" style="margin:12px 0"><button class="btn" id="pprev">←</button><b style="align-self:center">${fmt(days[0])} – ${fmt(days[6])}</b><button class="btn" id="pnext">→</button><button class="btn" id="ptoday">Aujourd'hui</button><span style="flex:1"></span><button class="btn primary" id="pshop">🛒 Courses de la semaine</button></div>
+  <div class="week">${days.map((d, i) => `<section class="panel"><h2>${DAYS[i]} <small style="color:var(--muted)">${fmt(d)}</small></h2>${SLOTS.map(([s, l]) => { const id = plan[dayKey(d) + '_' + s], r = id && byId(id); return `<div class="slot"><small>${l}</small>${r ? `<a href="#/r/${r.id}" class="slotr">${r.emoji} ${esc(r.title)}</a><button class="btn small" data-pc="${dayKey(d)}_${s}" aria-label="Retirer">✕</button>` : `<button class="btn small" data-pa="${dayKey(d)}_${s}">＋ Choisir</button>`}</div>`; }).join('')}</section>`).join('')}</div></div>`;
+  $('#pprev').onclick = () => { planOff--; renderPlan(); }; $('#pnext').onclick = () => { planOff++; renderPlan(); }; $('#ptoday').onclick = () => { planOff = 0; renderPlan(); };
+  $('#pshop').onclick = () => { const rs = days.flatMap(d => SLOTS.map(([s]) => byId(plan[dayKey(d) + '_' + s]))).filter(Boolean); if (!rs.length) return toast('Aucun repas planifié cette semaine'); rs.forEach(r => addToShop(r, r.servings)); };
+  $('#main').querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { delete plan[b.dataset.pc]; store.set('plan', plan); renderPlan(); });
+  $('#main').querySelectorAll('[data-pa]').forEach(b => b.onclick = () => pickRecipe(b.dataset.pa));
+}
+function pickRecipe(slotKey) {
+  const m = $('#modal'); m.hidden = false;
+  const draw = q => { const t = norm(q).split(/\s+/).filter(Boolean); return all().filter(r => t.every(w => norm(r.title + ' ' + r.type + ' ' + r.diets.join(' ')).includes(w))).map(r => `<button class="btn" data-pick="${r.id}" style="display:block;width:100%;text-align:left;margin-bottom:6px">${r.emoji} ${esc(r.title)} <small style="color:var(--muted)">· ${fmtMin(r.total)}</small></button>`).join('') || '<p class="empty">Aucun résultat</p>'; };
+  m.innerHTML = `<div class="mbox"><h2>Choisir une recette</h2><div class="fld"><input id="pq" placeholder="Rechercher…" autofocus></div><div id="pl">${draw('')}</div><button class="btn" id="pcancel">Annuler</button></div>`;
+  $('#pq').oninput = e => { $('#pl').innerHTML = draw(e.target.value); };
+  $('#pcancel').onclick = () => { m.hidden = true; };
+  $('#pl').onclick = e => { const b = e.target.closest('[data-pick]'); if (!b) return; const plan = store.get('plan', {}); plan[slotKey] = b.dataset.pick; store.set('plan', plan); m.hidden = true; renderPlan(); };
+}
+
 // ---------- routeur ----------
-function route() { const m = location.hash.match(/^#\/r\/(.+)$/); drawer(false); m ? renderDetail(m[1]) : renderList(); }
+function route() { const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : 'list'; m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : renderList(); }
 addEventListener('hashchange', route);
-buildFilters(); setView(view); route();
+
+async function reloadServer() { serverRecipes = await (await fetch('/api/recipes')).json(); }
+(async () => {
+  try { // le serveur est-il là ? sinon mode local (maquette statique)
+    const r = await fetch('/api/recipes', { signal: AbortSignal.timeout(2000) });
+    if (r.ok && /json/.test(r.headers.get('content-type') || '')) { serverRecipes = await r.json(); cache = await (await fetch('/api/kv')).json(); serverMode = true; }
+  } catch {}
+  if (!serverMode) userRecipes = store.get('user', []);
+  photos = store.get('photos', {}); favs = new Set(store.get('favs', []));
+  buildFilters(); setView(view); updateBadge(); route();
+})();
 })();

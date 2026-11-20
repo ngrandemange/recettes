@@ -11,3 +11,7 @@ Données d'exemple : `app/data.js`. Aucune dépendance, tout est stocké en loca
 - Sans clé : import JSON-LD seul (parseur d'ingrédients basique) ; photo indisponible.
 - Modèles réglables : `CLAUDE_MODEL_TEXT`, `CLAUDE_MODEL_VISION`. Tests : `node --no-warnings server/test.js`.
 - L'import pré-remplit le formulaire : toujours relire avant d'enregistrer.
+
+## Mode serveur / mode local
+L'interface détecte `/api/recipes` au démarrage : si le serveur répond, recettes en base SQLite (seed automatique depuis `app/data.js`), favoris/photos/courses/planning en table `kv`. Sinon (page statique), tout reste en `localStorage`.
+Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le planning), planning de semaine midi/soir, suppression de recettes.

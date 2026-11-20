@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS recipes (
   cook_min    INTEGER NOT NULL DEFAULT 0,
   rest_min    INTEGER NOT NULL DEFAULT 0,
   servings    INTEGER NOT NULL DEFAULT 4,
+  emoji       TEXT NOT NULL DEFAULT '🍽️',
+  hue         INTEGER NOT NULL DEFAULT 200,
   photo_path  TEXT,
   source_url  TEXT,                         -- traçabilité de l'import
   source_kind TEXT,                         -- 'manual' | 'url' | 'photo'
@@ -34,3 +36,6 @@ CREATE TABLE IF NOT EXISTS recipe_labels (
 CREATE INDEX IF NOT EXISTS idx_labels ON recipe_labels(facet, label);
 CREATE TABLE IF NOT EXISTS favorites (recipe_id TEXT PRIMARY KEY REFERENCES recipes(id) ON DELETE CASCADE);
 CREATE TABLE IF NOT EXISTS import_cache (url TEXT PRIMARY KEY, result TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+-- Données utilisateur simples (favoris, photos, liste de courses, planning).
+-- Prototype : à normaliser en tables dédiées + user_id quand les comptes arrivent.
+CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
