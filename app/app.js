@@ -116,8 +116,8 @@ function renderDetail(id) {
   if ($('#del')) $('#del').onclick = () => { if (confirm('Supprimer cette recette ?')) { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); location.hash = '#/'; } };
   scrollTo(0, 0);
 }
-function resizePhoto(file) {
-  return new Promise(res => { const img = new Image(); img.onload = () => { const m = 900, k = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8)); }; img.src = URL.createObjectURL(file); });
+function resizePhoto(file, m = 900) {
+  return new Promise(res => { const img = new Image(); img.onload = () => { const k = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8)); }; img.src = URL.createObjectURL(file); });
 }
 
 // ---------- minuteurs ----------
@@ -140,6 +140,7 @@ $('#btnNew').onclick = () => {
   const m = $('#modal'); m.hidden = false;
   const opt = a => a.map(v => `<option>${v}</option>`).join('');
   m.innerHTML = `<form class="mbox" id="nf"><h2>Nouvelle recette</h2>
+  <div class="panel" style="margin-bottom:14px"><b>✨ Importer</b> <small id="imsg" style="color:var(--muted)">depuis une URL ou une photo (nécessite le serveur)</small><div class="toolbar" style="margin-top:8px"><input id="iurl" type="url" placeholder="https://…" style="flex:1;min-width:180px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button type="button" class="btn" id="igo">Importer l'URL</button><label class="btn">📸 Photo / scan<input id="iph" type="file" accept="image/*" capture="environment" hidden></label></div></div>
   <div class="fld"><label>Titre</label><input name="title" required></div>
   <div class="row2"><div class="fld"><label>Type</label><select name="type">${opt(['Plat', 'Entrée', 'Dessert', 'Petit-déjeuner', 'Boisson', 'Base'])}</select></div>
   <div class="fld"><label>Difficulté</label><select name="difficulty"><option value="1">Facile</option><option value="2">Moyen</option><option value="3">Difficile</option></select></div>
@@ -152,6 +153,16 @@ $('#btnNew').onclick = () => {
   <div class="fld"><label>Photo</label><input name="photo" type="file" accept="image/*"></div>
   <div class="toolbar"><button class="btn primary">Enregistrer</button><button type="button" class="btn" id="cancel">Annuler</button></div></form>`;
   $('#cancel').onclick = () => { m.hidden = true; };
+  const fill = r => { const f = $('#nf').elements, set = (k, v) => { f[k].value = v; };
+    set('title', r.title); set('type', r.type); set('difficulty', r.difficulty); set('servings', r.servings); set('prep', r.prep); set('cook', r.cook); set('rest', r.rest);
+    set('diets', r.diets.join(', ')); set('method', r.method.join(', '));
+    set('ing', r.ingredients.map(i => [i.q || '', i.u, i.n].filter(Boolean).join(' ')).join('\n'));
+    set('steps', r.steps.map(s => [s.t, s.temp ? s.temp + '°C' : '', s.timer ? s.timer + ' min' : ''].filter((x, k) => k === 0 || x).join(' | ')).join('\n')); };
+  const imp = async (path, payload, label) => { const msg = $('#imsg'); msg.textContent = '⏳ ' + label + '…';
+    try { const r = await fetch('/api/import/' + path, { method: 'POST', body: JSON.stringify(payload) }), j = await r.json(); if (!r.ok) throw new Error(j.error); fill(j.recipe); msg.textContent = '✅ Importé (' + j.via + ') — relisez avant d\'enregistrer !'; }
+    catch (e) { msg.textContent = '⚠️ ' + e.message; } };
+  $('#igo').onclick = () => $('#iurl').value && imp('url', { url: $('#iurl').value }, 'Lecture de la page');
+  $('#iph').onchange = async e => { const d = await resizePhoto(e.target.files[0], 1600); imp('photo', { data: d.split(',')[1], mediaType: 'image/jpeg' }, 'Lecture de la photo'); };
   $('#nf').onsubmit = async e => {
     e.preventDefault(); const f = new FormData(e.target), list = k => f.get(k).split(',').map(s => s.trim()).filter(Boolean);
     const ing = f.get('ing').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const x = l.match(/^([\d.,]+)\s*(\S+)?\s+(.*)$/); return x ? { q: parseFloat(x[1].replace(',', '.')), u: x[2] || '', n: x[3] } : { q: 0, u: '', n: l }; });
