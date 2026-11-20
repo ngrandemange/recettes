@@ -299,7 +299,14 @@ function renderShop() {
   $('#main').querySelectorAll('[data-sd]').forEach(c => c.onclick = () => { list.splice(c.dataset.sd, 1); save(list); });
   $('#sclean').onclick = () => save(list.filter(x => !x.done));
   $('#sclear').onclick = () => confirm('Vider la liste ?') && save([]);
-  $('#sshare').onclick = async () => { const t = list.filter(x => !x.done).map(x => `- ${[x.q ? fmtQty(x.q) : '', x.u, x.name].filter(Boolean).join(' ')}`).join('\n'); try { navigator.share ? await navigator.share({ title: 'Courses', text: t }) : (await navigator.clipboard.writeText(t), toast('Copié !')); } catch {} };
+  $('#sshare').onclick = async () => { const t = list.filter(x => !x.done).map(x => `- ${[x.q ? fmtQty(x.q) : '', x.u, x.name].filter(Boolean).join(' ')}`).join('\n'); try { if (navigator.share) await navigator.share({ title: 'Courses', text: t }); else await copyText(t); } catch {} };
+}
+
+// Copie sans API réservée au HTTPS (l'app peut tourner en http:// sur le réseau local)
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch { const a = document.createElement('textarea'); a.value = t; a.style.position = 'fixed'; a.style.opacity = 0; document.body.append(a); a.select(); document.execCommand('copy'); a.remove(); }
+  toast('Copié !');
 }
 
 // ---------- planning de la semaine ----------

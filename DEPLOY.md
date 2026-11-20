@@ -18,7 +18,7 @@ Le dépôt contient déjà `deploy.json` (profil validé avec le schéma de nas-
    nas-deploy deploy recettes
    ```
    Pipeline : test (`npm test`), build, contrôle de l'image (aucun `.env` ni `.db` dedans), smoke test local, envoi, sauvegarde SQLite en ligne, bascule derrière `GET /healthz`. `nas-deploy rollback recettes` revient en arrière.
-4. **HTTPS** (voir plus bas) puis ouvrir l'adresse sur l'iPhone.
+4. **Accès en local, sans certificat** : sur le portable, `ssh -L 8090:127.0.0.1:8090 admin@<nas>` puis `http://127.0.0.1:8090` (contexte sécurisé : hors-ligne et installation en app fonctionnent). Sur l'iPhone, `http://<ip-du-nas>:8090` fonctionne mais sans service worker, hors-ligne ni écran maintenu allumé (Safari les réserve au HTTPS). Le HTTPS n'est nécessaire que pour ces trois fonctions.
 
 Particularités : le conteneur tourne sous votre compte NAS (`run.user: "nas-account"`, comme Filmo) à cause des ACL Synology ; les données vivent dans `/<volume>/docker/recettes/data` (base + `backups/` quotidiens de l'app, en plus des sauvegardes de la plateforme). Pas de changement du code de nas-deploy nécessaire.
 
