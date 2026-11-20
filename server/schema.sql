@@ -39,3 +39,11 @@ CREATE TABLE IF NOT EXISTS import_cache (url TEXT PRIMARY KEY, result TEXT NOT N
 -- Données utilisateur simples (favoris, photos, liste de courses, planning).
 -- Prototype : à normaliser en tables dédiées + user_id quand les comptes arrivent.
 CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Photos : une par recette, en BLOB (sauvegardées avec la base). Supprimées avec la recette.
+CREATE TABLE IF NOT EXISTS photos (
+  recipe_id  TEXT PRIMARY KEY REFERENCES recipes(id) ON DELETE CASCADE,
+  mime       TEXT NOT NULL CHECK (mime IN ('image/jpeg','image/png','image/webp')),
+  data       BLOB NOT NULL,
+  bytes      INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);

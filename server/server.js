@@ -19,24 +19,26 @@ function clean(r) {
     steps: A(r.steps).filter(s => s && s.t).map(s => ({ t: String(s.t), temp: I(s.temp, 1, 350, null), timer: I(s.timer, 1, 10080, null), kind: s.kind === 'repos' || s.kind === 'cuisson' ? s.kind : null })) };
 }
 function saveRecipe(r, kind, src, fixedId, replace) {
-  const id = fixedId || 'r' + Date.now().toString(36);
+  const id = fixedId || 'r' + Date.now().toString(36) + require('node:crypto').randomBytes(3).toString('hex');
   db.exec('BEGIN');
   try {
-    let created = null;
-    if (replace) { const o = db.prepare('SELECT created_at,source_url,source_kind FROM recipes WHERE id=?').get(id); if (!o) throw new Error('Recette introuvable'); created = o.created_at; src = o.source_url; kind = o.source_kind; db.prepare('DELETE FROM recipes WHERE id=?').run(id); }
+    let created = null, keepPhoto = null;
+    if (replace) { keepPhoto = db.prepare('SELECT mime,data,bytes,updated_at FROM photos WHERE recipe_id=?').get(id); const o = db.prepare('SELECT created_at,source_url,source_kind FROM recipes WHERE id=?').get(id); if (!o) throw new Error('Recette introuvable'); created = o.created_at; src = o.source_url; kind = o.source_kind; db.prepare('DELETE FROM recipes WHERE id=?').run(id); }
     db.prepare('INSERT INTO recipes(id,title,type,difficulty,prep_min,cook_min,rest_min,servings,source_url,source_kind,emoji,hue) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id, r.title, r.type, r.difficulty, r.prep, r.cook, r.rest, r.servings, src || null, kind, r.emoji || '🍽️', r.hue ?? 200);
     r.ingredients.forEach((i, p) => db.prepare('INSERT INTO ingredients VALUES(?,?,?,?,?)').run(id, p, i.q, i.u, i.n));
     r.steps.forEach((s, p) => db.prepare('INSERT INTO steps VALUES(?,?,?,?,?,?)').run(id, p, s.t, s.temp ?? null, s.timer ?? null, s.kind ?? null));
     for (const [f, a] of [['diet', r.diets], ['method', r.method], ['tag', r.tags]]) a.forEach(l => db.prepare('INSERT OR IGNORE INTO recipe_labels VALUES(?,?,?)').run(id, f, l));
     if (created) db.prepare('UPDATE recipes SET created_at=? WHERE id=?').run(created, id);
+    if (keepPhoto) db.prepare('INSERT INTO photos VALUES(?,?,?,?,?)').run(id, keepPhoto.mime, keepPhoto.data, keepPhoto.bytes, keepPhoto.updated_at);
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
   return id;
 }
 function listRecipes() {
+  const ph = new Map(db.prepare('SELECT recipe_id id, updated_at u FROM photos').all().map(x => [x.id, x.u]));
   return db.prepare('SELECT * FROM recipes ORDER BY created_at DESC').all().map(r => {
     const L = f => db.prepare('SELECT label FROM recipe_labels WHERE recipe_id=? AND facet=?').all(r.id, f).map(x => x.label);
-    return { id: r.id, title: r.title, type: r.type, difficulty: r.difficulty, prep: r.prep_min, cook: r.cook_min, rest: r.rest_min, servings: r.servings, diets: L('diet'), method: L('method'), tags: L('tag'), emoji: r.emoji, hue: r.hue,
+    return { id: r.id, title: r.title, type: r.type, difficulty: r.difficulty, prep: r.prep_min, cook: r.cook_min, rest: r.rest_min, servings: r.servings, diets: L('diet'), method: L('method'), tags: L('tag'), emoji: r.emoji, hue: r.hue, photo: ph.has(r.id) ? `/api/recipes/${r.id}/photo?v=${ph.get(r.id)}` : null,
       ingredients: db.prepare('SELECT qty q,unit u,name n FROM ingredients WHERE recipe_id=? ORDER BY pos').all(r.id),
       steps: db.prepare('SELECT text t,temp_c temp,timer_min timer,kind FROM steps WHERE recipe_id=? ORDER BY pos').all(r.id).map(s => Object.fromEntries(Object.entries(s).filter(([, v]) => v !== null))) };
   });
@@ -46,6 +48,24 @@ if (db.prepare('SELECT COUNT(*) c FROM recipes').get().c === 0) {
   const sb = { window: {} }; vm.runInNewContext(fs.readFileSync(path.join(WEB, 'data.js'), 'utf8'), sb);
   sb.window.RECIPES.forEach(r => saveRecipe(r, 'manual', null, r.id));
 }
+const sniff = b => b.length > 12 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF ? 'image/jpeg'
+  : b.length > 12 && b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) ? 'image/png'
+  : b.length > 12 && b.slice(0, 4).toString('latin1') === 'RIFF' && b.slice(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
+const MAX_PHOTO = 8 * 1024 * 1024;
+const raw = (req, max) => new Promise((ok, ko) => { const parts = []; let n = 0; req.on('data', c => { n += c.length; if (n > max) { ko(Object.assign(new Error('Photo trop lourde (8 Mo max)'), { status: 413 })); req.destroy(); } else parts.push(c); }); req.on('end', () => ok(Buffer.concat(parts))); req.on('error', ko); });
+function putPhoto(id, buf, mime) { db.prepare('INSERT INTO photos VALUES(?,?,?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET mime=excluded.mime,data=excluded.data,bytes=excluded.bytes,updated_at=excluded.updated_at').run(id, mime, buf, buf.length, Date.now()); }
+// Migration : anciennes photos stockées en texte dans la table kv -> BLOB
+(function migratePhotos() {
+  const row = db.prepare("SELECT value FROM kv WHERE key='photos'").get(); if (!row) return;
+  let map; try { map = JSON.parse(row.value); } catch { return; }
+  const left = {}; let moved = 0;
+  for (const [id, u] of Object.entries(map || {})) {
+    const m = typeof u === 'string' && /^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(u), buf = m && Buffer.from(m[1], 'base64'), mime = buf && sniff(buf);
+    if (mime && db.prepare('SELECT 1 FROM recipes WHERE id=?').get(id)) { if (!db.prepare('SELECT 1 FROM photos WHERE recipe_id=?').get(id)) putPhoto(id, buf, mime); moved++; } else left[id] = u;
+  }
+  if (Object.keys(left).length) db.prepare("UPDATE kv SET value=? WHERE key='photos'").run(JSON.stringify(left)); else db.prepare("DELETE FROM kv WHERE key='photos'").run();
+  if (moved) console.log(`photos migrées vers la base : ${moved}`);
+})();
 const body = req => new Promise((ok, ko) => { let b = '', n = 0; req.on('data', c => { n += c.length; if (n > 12e6) { ko(new Error('Trop gros')); req.destroy(); } else b += c; }); req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch (e) { ko(e); } }); });
 const send = (res, code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
 
@@ -75,6 +95,15 @@ http.createServer(async (req, res) => {
     let m;
     if ((m = u.pathname.match(/^\/api\/recipes\/([\w-]+)$/)) && req.method === 'DELETE') { db.prepare('DELETE FROM recipes WHERE id=?').run(m[1]); return send(res, 200, { ok: true }); }
     if ((m = u.pathname.match(/^\/api\/recipes\/([\w-]+)$/)) && req.method === 'PUT') return send(res, 200, { id: saveRecipe(clean((await body(req)).recipe), null, null, m[1], true) });
+    if ((m = u.pathname.match(/^\/api\/recipes\/([\w-]+)\/photo$/))) {
+      if (!db.prepare('SELECT 1 FROM recipes WHERE id=?').get(m[1])) return send(res, 404, { error: 'Recette introuvable' });
+      if (req.method === 'GET') {
+        const p = db.prepare('SELECT mime,data FROM photos WHERE recipe_id=?').get(m[1]); if (!p) return send(res, 404, { error: 'Pas de photo' });
+        res.writeHead(200, { 'content-type': p.mime, 'content-length': p.data.length, 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' }); return res.end(Buffer.from(p.data));
+      }
+      if (req.method === 'PUT') { const buf = await raw(req, MAX_PHOTO), mime = sniff(buf); if (!mime) return send(res, 400, { error: 'Fichier image non reconnu (JPEG, PNG ou WebP)' }); putPhoto(m[1], buf, mime); return send(res, 200, { ok: true, bytes: buf.length }); }
+      if (req.method === 'DELETE') { db.prepare('DELETE FROM photos WHERE recipe_id=?').run(m[1]); return send(res, 200, { ok: true }); }
+    }
     if (u.pathname === '/api/kv' && req.method === 'GET') return send(res, 200, Object.fromEntries(db.prepare('SELECT key,value FROM kv').all().map(x => [x.key, JSON.parse(x.value)])));
     if ((m = u.pathname.match(/^\/api\/kv\/(\w+)$/)) && req.method === 'PUT') { db.prepare('INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(m[1], JSON.stringify(await body(req))); return send(res, 200, { ok: true }); }
     if (u.pathname === '/api/import/url' && req.method === 'POST') return send(res, 200, await importUrl((await body(req)).url));
@@ -83,5 +112,5 @@ http.createServer(async (req, res) => {
     const f = path.join(WEB, path.normalize(u.pathname === '/' ? '/index.html' : u.pathname));
     if (!f.startsWith(WEB) || !fs.existsSync(f)) { res.writeHead(404); return res.end('404'); }
     res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); fs.createReadStream(f).pipe(res);
-  } catch (e) { send(res, e.code === 'NO_KEY' ? 501 : 400, { error: e.message }); }
+  } catch (e) { send(res, e.status || (e.code === 'NO_KEY' ? 501 : 400), { error: e.message }); }
 }).listen(process.env.PORT || 3000, () => console.log('http://localhost:' + (process.env.PORT || 3000)));

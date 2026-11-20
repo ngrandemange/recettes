@@ -5,7 +5,9 @@
   "description": "App perso de gestion de recettes (végétal), serveur Node sans dépendance + SQLite",
   "scripts": {
     "start": "node server/server.js",
-    "test": "node --no-warnings server/test.js"
+    "test": "node --no-warnings server/test.js && node --no-warnings server/test-api.js"
   },
-  "engines": { "node": ">=22.13" }
+  "engines": {
+    "node": ">=22.13"
+  }
 }

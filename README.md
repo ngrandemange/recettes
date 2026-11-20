@@ -25,3 +25,9 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - Bouton « ✏️ Modifier » sur chaque fiche ; « 💾 Sauvegarde & export » en bas de la liste (export/restauration JSON).
 - PWA : `manifest.webmanifest`, `sw.js` (réseau d'abord, cache hors-ligne), icônes ; active seulement en mode serveur.
 - `./deploy.sh <nom>` : déploiement Fly.io guidé (voir `DEPLOY.md`).
+
+## Photos en base, minuteurs persistants, courses
+- Photos : BLOB dans la table `photos` (une par recette, 8 Mo max, JPEG/PNG/WebP vérifiés par signature), servies par `/api/recipes/:id/photo?v=…` (cache navigateur, hors-ligne via le service worker). Les anciennes photos stockées en texte sont migrées au démarrage du serveur.
+- Minuteurs : enregistrés avec leur heure de fin, repris à la réouverture de l'app.
+- Courses : fusion des unités (g/kg, ml/cl/l, c. à c./c. à s.) et des pluriels (gousse/gousses).
+- Tests : `npm test` (import + API avec un vrai serveur sur base temporaire).

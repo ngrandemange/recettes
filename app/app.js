@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const $ = (s, el = document) => el.querySelector(s);
-const SK = new Set(['favs', 'photos', 'shop', 'plan']); // clés stockées côté serveur quand il est disponible
+const SK = new Set(['favs', 'shop', 'plan']); // clés stockées côté serveur quand il est disponible
 let serverMode = false, serverRecipes = null, cache = {};
 const store = {
   get(k, d) { if (serverMode && SK.has(k)) return k in cache ? cache[k] : d; try { const v = localStorage.getItem('rec.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
@@ -112,7 +112,7 @@ function renderDetail(id) {
   <div class="stats"><div class="stat"><b>${fmtMin(r.prep)}</b><span>Préparation</span></div><div class="stat"><b>${fmtMin(r.cook)}</b><span>Cuisson</span></div>${r.rest ? `<div class="stat"><b>${fmtMin(r.rest)}</b><span>Repos</span></div>` : ''}<div class="stat"><b>${fmtMin(r.total)}</b><span>Total</span></div><div class="stat"><b>${DIFF[r.difficulty]}</b><span>Difficulté</span></div></div>
   <div class="meta">🔥 ${r.method.map(esc).join(' · ')}</div>
   <div class="tags">${r.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
-  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="edit">✏️ Modifier</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? `<button class="btn" id="del">${!serverMode && window.RECIPES.some(b => b.id === r.id) ? '↩ Rétablir l\'original' : '🗑 Supprimer'}</button>` : ''}</div></div></div>
+  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="edit">✏️ Modifier</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] || (serverMode && r.photo) ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? `<button class="btn" id="del">${!serverMode && window.RECIPES.some(b => b.id === r.id) ? '↩ Rétablir l\'original' : '🗑 Supprimer'}</button>` : ''}</div></div></div>
   <div class="cols"><section class="panel"><h2>Ingrédients</h2><div class="servings"><button id="m" aria-label="Moins">−</button><b id="n">${n}</b> personnes <button id="p" aria-label="Plus">+</button></div><ul class="ing" id="ing">${ingHtml()}</ul></section>
   <section class="panel"><h2>Préparation</h2><ol class="steps">${r.steps.map((s, k) => `<li data-k="${k}"><div><span>${esc(s.t)}</span><div class="chiprow">${s.temp ? `<span class="pill temp">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill">${s.kind === 'repos' ? '💤 Repos' : '🔥 Cuisson'} ${fmtMin(s.timer)}</span><button class="tbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur</button>` : ''}</div></div></li>`).join('')}</ol></section></div></div>`;
   $('#ing').onchange = e => e.target.closest('li').classList.toggle('done', e.target.checked);
@@ -123,29 +123,47 @@ function renderDetail(id) {
   $('#cookmode').onclick = () => openCook(r, n);
   $('#edit').onclick = () => openForm(r);
   document.querySelectorAll('.steps li').forEach(li => li.addEventListener('dblclick', () => li.classList.toggle('done')));
-  $('#photo').onchange = e => resizePhoto(e.target.files[0]).then(d => { photos[r.id] = d; store.set('photos', photos); route(); });
-  if ($('#rmphoto')) $('#rmphoto').onclick = () => { delete photos[r.id]; store.set('photos', photos); route(); };
+  $('#photo').onchange = async e => { try { await setPhoto(r.id, await resizePhoto(e.target.files[0], serverMode ? 1200 : 900)); route(); } catch (err) { alert('Photo non enregistrée : ' + err.message); } };
+  if ($('#rmphoto')) $('#rmphoto').onclick = async () => { await clearPhoto(r.id); route(); };
   if ($('#del')) $('#del').onclick = async () => { if (confirm($('#del').textContent.includes('original') ? 'Rétablir la version d\'origine ?' : 'Supprimer cette recette ?')) { if (serverMode) { await fetch('/api/recipes/' + r.id, { method: 'DELETE' }); await reloadServer(); } else { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); } buildFilters(); location.hash = '#/'; } };
   scrollTo(0, 0);
+}
+// Photos : en mode serveur, BLOB dans la base (API /api/recipes/:id/photo) ; en mode local, texte dans localStorage.
+const toBlob = u => fetch(u).then(r => r.blob());
+const urlToDataUrl = async u => { const b = await (await fetch(u)).blob(); return new Promise(ok => { const f = new FileReader(); f.onload = () => ok(f.result); f.readAsDataURL(b); }); };
+async function setPhoto(id, dataUrl, reload = true) {
+  if (!serverMode) { photos[id] = dataUrl; store.set('photos', photos); return; }
+  const x = await fetch('/api/recipes/' + id + '/photo', { method: 'PUT', body: await toBlob(dataUrl) });
+  if (!x.ok) throw new Error((await x.json().catch(() => ({}))).error || 'Erreur serveur');
+  if (reload) await reloadServer();
+}
+async function clearPhoto(id) {
+  if (serverMode) { await fetch('/api/recipes/' + id + '/photo', { method: 'DELETE' }); await reloadServer(); } else { delete photos[id]; store.set('photos', photos); }
 }
 function resizePhoto(file, m = 900) {
   return new Promise(res => { const img = new Image(); img.onload = () => { const k = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8)); }; img.src = URL.createObjectURL(file); });
 }
 
 // ---------- minuteurs ----------
-const timers = []; let actx;
+const timers = (() => { try { const t = JSON.parse(localStorage.getItem('rec.timers') || '[]'); return Array.isArray(t) ? t.filter(x => x && typeof x.end === 'number') : []; } catch { return []; } })(); let actx;
+const saveTimers = () => { try { localStorage.setItem('rec.timers', JSON.stringify(timers)); } catch {} };
 function beep() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); [0, .25, .5].forEach(t => { const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 880; o.connect(g); g.connect(actx.destination); g.gain.setValueAtTime(.2, actx.currentTime + t); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + t + .2); o.start(actx.currentTime + t); o.stop(actx.currentTime + t + .22); }); navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch {} }
 const clock = ms => { const s = Math.max(0, Math.ceil(ms / 1000)), h = Math.floor(s / 3600); return (h ? h + ':' : '') + String(Math.floor(s % 3600 / 60)).padStart(h ? 2 : 1, '0') + ':' + String(s % 60).padStart(2, '0'); };
 function drawTimers() {
   $('#timers').innerHTML = timers.map((t, i) => `<div class="timer ${t.done ? 'ring' : ''}"><div class="clock">${clock(t.end - Date.now())}</div><div class="lbl">${t.done ? '⏰ Terminé ! ' : ''}${esc(t.label)}</div><button class="btn small" data-x="${i}">${t.done ? 'OK' : '✕'}</button></div>`).join('');
 }
-$('#timers').addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) { timers.splice(+b.dataset.x, 1); drawTimers(); } });
+$('#timers').addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) { timers.splice(+b.dataset.x, 1); saveTimers(); drawTimers(); } });
 function startTimer(min, label) {
   try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} // débloque l'audio (iOS)
-  timers.push({ end: Date.now() + min * 60000, label, done: false }); drawTimers();
+  timers.push({ end: Date.now() + min * 60000, label, done: false }); saveTimers(); drawTimers();
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-timer]'); if (b) startTimer(+b.dataset.timer, b.dataset.label); });
-setInterval(() => { let ch = false; timers.forEach(t => { if (!t.done && Date.now() >= t.end) { t.done = true; beep(); ch = true; } }); if (timers.length) drawTimers(); }, 250);
+// Les minuteurs sont enregistrés avec leur heure de fin : ils survivent à la fermeture de l'app. Au retour au premier plan
+// (iOS suspend les pages en arrière-plan), le temps restant est recalculé aussitôt.
+function tickTimers() { let ch = false; timers.forEach(t => { if (!t.done && Date.now() >= t.end) { t.done = true; ch = true; beep(); } }); if (ch) saveTimers(); if (timers.length || $('#timers').children.length) drawTimers(); }
+setInterval(tickTimers, 250);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') tickTimers(); });
+tickTimers();
 
 // ---------- nouvelle recette ----------
 // Analyse d'une ligne d'ingrédient : « 2 c. à s. de concentré » -> {q:2,u:'c. à s.',n:'de concentré'}
@@ -191,13 +209,12 @@ function openForm(edit) {
     e.preventDefault(); const f = new FormData(e.target), list = k => f.get(k).split(',').map(x => x.trim()).filter(Boolean), lines = k => f.get(k).split('\n').map(l => l.trim()).filter(Boolean);
     const { total, photo: _p, ...base } = edit || {}, file = f.get('photo');
     const r = { ...base, id: edit ? edit.id : 'u' + Date.now(), title: f.get('title'), emoji: base.emoji || '🍽️', hue: base.hue ?? Math.floor(Math.random() * 360), type: f.get('type'), diets: list('diets'), difficulty: +f.get('difficulty'), prep: +f.get('prep'), cook: +f.get('cook'), rest: +f.get('rest'), method: list('method'), servings: +f.get('servings') || 1, tags: list('tags'), ingredients: lines('ing').map(parseIng), steps: lines('steps').map(parseStep) };
-    const newPhoto = file && file.size ? await resizePhoto(file) : null;
+    const newPhoto = file && file.size ? await resizePhoto(file, serverMode ? 1200 : 900) : null;
     try {
       if (serverMode) {
         const send = (url, method, b) => fetch(url, { method, body: JSON.stringify(b) }).then(x => { if (!x.ok) throw new Error('Erreur serveur'); return x.json(); });
         if (edit) await send('/api/recipes/' + r.id, 'PUT', { recipe: r }); else r.id = (await send('/api/recipes', 'POST', { recipe: r, kind: 'manual' })).id;
-        if (newPhoto) { photos[r.id] = newPhoto; store.set('photos', photos); }
-        await reloadServer();
+        if (newPhoto) await setPhoto(r.id, newPhoto); else await reloadServer();
       } else {
         const orig = userRecipes.find(u => u.id === r.id); if (orig && orig.photo) r.photo = orig.photo; if (newPhoto) r.photo = newPhoto;
         orig ? userRecipes[userRecipes.indexOf(orig)] = r : userRecipes.unshift(r); store.set('user', userRecipes);
@@ -215,8 +232,10 @@ function openBackup() {
   <div class="toolbar"><button class="btn primary" id="bx">⬇️ Exporter</button><label class="btn">⬆️ Restaurer / fusionner<input id="bi" type="file" accept="application/json,.json" hidden></label><button class="btn" id="bc">Fermer</button></div>
   <p style="color:var(--muted);font-size:.85rem">La restauration ajoute les recettes absentes et fusionne favoris, photos et planning ; elle ne supprime rien.</p></div>`;
   $('#bc').onclick = () => { m.hidden = true; };
-  $('#bx').onclick = () => {
-    const d = { app: 'mes-recettes', version: 1, exported: new Date().toISOString(), recipes: serverMode ? serverRecipes : userRecipes, favs: [...favs], photos, shop: shopList(), plan: store.get('plan', {}) };
+  $('#bx').onclick = async () => {
+    const ph = { ...photos };
+    if (serverMode) for (const r of serverRecipes) if (r.photo) { try { ph[r.id] = await urlToDataUrl(r.photo); } catch {} }
+    const d = { app: 'mes-recettes', version: 1, exported: new Date().toISOString(), recipes: serverMode ? serverRecipes : userRecipes, favs: [...favs], photos: ph, shop: shopList(), plan: store.get('plan', {}) };
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' })); a.download = 'recettes-' + d.exported.slice(0, 10) + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   };
   $('#bi').onchange = async e => {
@@ -232,7 +251,8 @@ function openBackup() {
     } catch { return toast('Restauration interrompue (hors-ligne ?)'); }
     if (!serverMode) store.set('user', userRecipes); else await reloadServer();
     favs = new Set([...favs, ...(d.favs || [])]); store.set('favs', [...favs]);
-    photos = { ...photos, ...(d.photos || {}) }; store.set('photos', photos);
+    if (serverMode) { for (const [id, u] of Object.entries(d.photos || {})) { const rr = serverRecipes.find(x => x.id === id); if (rr && !rr.photo) { try { await setPhoto(id, u, false); } catch {} } } await reloadServer(); }
+    else { photos = { ...photos, ...(d.photos || {}) }; store.set('photos', photos); }
     store.set('plan', { ...store.get('plan', {}), ...(d.plan || {}) });
     if (!shopList().length && Array.isArray(d.shop)) store.set('shop', d.shop);
     m.hidden = true; buildFilters(); updateBadge(); route(); toast(`✅ ${added} recette${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''}`);
@@ -278,11 +298,30 @@ const aisle = n => AISLES.find(([, re]) => re.test(n))[0];
 const shopList = () => store.get('shop', []);
 function updateBadge() { const n = shopList().filter(x => !x.done).length, b = $('#shopc'); b.hidden = !n; b.textContent = n; }
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.append(t); setTimeout(() => t.remove(), 2200); }
+// Unités convertibles : masse (g), volume (ml), cuillères (c. à c.). Les autres unités (gousse, pincée…) restent telles quelles.
+const UNITS = { 'g': ['m', 1], 'kg': ['m', 1000], 'mg': ['m', .001], 'ml': ['v', 1], 'cl': ['v', 10], 'dl': ['v', 100], 'l': ['v', 1000], 'c. a s.': ['s', 3], 'c. a c.': ['s', 1] };
+const normUnit = u => norm(u).replace(/\s+/g, ' ').trim();
+const keyName = n => norm(n).replace(/^(de la |de l'|de |d'|du |des |la |le |les |l')/, '').split(/\s+/).map(w => w.replace(/s$/, '')).join(' ');
+const near = (a, b) => Math.abs(a - b) < 1e-9;
+const COUNTABLE = /^(gousse|pincée|boîte|sachet|bouquet|tranche|poignée|feuille|brin|verre|tasse|tête|branche|cube)s?$/i;
+const singular = u => COUNTABLE.test(u.trim()) ? u.trim().replace(/s$/i, '') : u;
+const plural = u => COUNTABLE.test(u.trim()) && !/s$/i.test(u.trim()) ? u.trim() + 's' : u;
+function shopPart(i, k) { // -> { key, fam, u, q } en unité de base
+  const ui = UNITS[normUnit(i.u)], q = Math.round((i.q || 0) * k * (ui ? ui[1] : 1) * 1000) / 1000;
+  return ui ? { key: keyName(i.n) + '|' + ui[0], fam: ui[0], u: { m: 'g', v: 'ml', s: 'c. à c.' }[ui[0]], q } : { key: keyName(i.n) + '|u:' + normUnit(singular(i.u)), u: singular(i.u), q };
+}
+function itemQty(x) { // quantité et unité à afficher (500 g + 1 kg -> 1,5 kg)
+  if (!x.q) return ['', x.u];
+  if (x.fam === 'm') return x.q >= 1000 ? [fmtQty(x.q / 1000), 'kg'] : [fmtQty(x.q), 'g'];
+  if (x.fam === 'v') return x.q >= 1000 ? [fmtQty(x.q / 1000), 'L'] : x.q >= 100 && near(x.q / 10, Math.round(x.q / 10)) ? [fmtQty(x.q / 10), 'cl'] : [fmtQty(x.q), 'ml'];
+  if (x.fam === 's') return x.q >= 3 && near(x.q / 3, Math.round(x.q / 3)) ? [fmtQty(x.q / 3), 'c. à s.'] : [fmtQty(x.q), 'c. à c.'];
+  return [fmtQty(x.q), x.q > 1 ? plural(x.u) : x.u];
+}
 function addToShop(r, n) {
   const list = shopList(), k = n / r.servings;
   r.ingredients.forEach(i => {
-    const key = norm(i.n) + '|' + i.u, ex = list.find(x => x.key === key && !x.done), q = (i.q || 0) * k;
-    if (ex) { ex.q += q; if (!ex.from.includes(r.title)) ex.from.push(r.title); } else list.push({ key, name: i.n, u: i.u, q, done: false, from: [r.title] });
+    const p = shopPart(i, k), ex = list.find(x => x.key === p.key && !x.done);
+    if (ex) { ex.q = Math.round((ex.q + p.q) * 1000) / 1000; if (!ex.from.includes(r.title)) ex.from.push(r.title); } else list.push({ ...p, name: i.n, done: false, from: [r.title] });
   });
   store.set('shop', list); updateBadge(); toast('🛒 « ' + r.title + ' » ajoutée à la liste');
 }
@@ -291,7 +330,7 @@ function renderShop() {
   list.forEach((x, i) => (groups[aisle(x.name)] = groups[aisle(x.name)] || []).push([x, i]));
   $('#main').innerHTML = `<div class="detail"><h1>🛒 Liste de courses</h1>
   <form class="toolbar" id="sadd" style="margin:12px 0"><input id="snew" placeholder="Ajouter un article…" style="flex:1;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button class="btn primary">Ajouter</button></form>
-  ${list.length ? Object.keys(groups).sort().map(g => `<section class="panel" style="margin-bottom:14px"><h2>${g}</h2><ul class="ing">${groups[g].map(([x, i]) => `<li class="${x.done ? 'done' : ''}"><input type="checkbox" data-si="${i}" ${x.done ? 'checked' : ''}><span>${x.q ? `<b>${fmtQty(x.q)}</b> ` : ''}${esc(x.u)} ${esc(x.name)}<br><small style="color:var(--muted)">${x.from.map(esc).join(', ')}</small></span><button class="btn small" data-sd="${i}" style="margin-left:auto" aria-label="Retirer">✕</button></li>`).join('')}</ul></section>`).join('') : '<div class="empty"><div style="font-size:3rem">🛒</div><p>Votre liste est vide.<br>Ajoutez une recette depuis sa fiche, ou le planning de la semaine.</p></div>'}
+  ${list.length ? Object.keys(groups).sort().map(g => `<section class="panel" style="margin-bottom:14px"><h2>${g}</h2><ul class="ing">${groups[g].map(([x, i]) => `<li class="${x.done ? 'done' : ''}"><input type="checkbox" data-si="${i}" ${x.done ? 'checked' : ''}><span>${(([a, u]) => `${a ? `<b>${a}</b> ` : ''}${esc(u)}`)(itemQty(x))} ${esc(x.name)}<br><small style="color:var(--muted)">${x.from.map(esc).join(', ')}</small></span><button class="btn small" data-sd="${i}" style="margin-left:auto" aria-label="Retirer">✕</button></li>`).join('')}</ul></section>`).join('') : '<div class="empty"><div style="font-size:3rem">🛒</div><p>Votre liste est vide.<br>Ajoutez une recette depuis sa fiche, ou le planning de la semaine.</p></div>'}
   <div class="toolbar"><button class="btn" id="sclean">Retirer les cochés</button><button class="btn" id="sclear">Tout vider</button><button class="btn" id="sshare">📋 Copier / partager</button></div></div>`;
   const save = l => { store.set('shop', l); updateBadge(); renderShop(); };
   $('#sadd').onsubmit = e => { e.preventDefault(); const v = $('#snew').value.trim(); if (v) save([...list, { key: 'm|' + norm(v), name: v, u: '', q: 0, done: false, from: ['Ajout manuel'] }]); };
@@ -299,7 +338,7 @@ function renderShop() {
   $('#main').querySelectorAll('[data-sd]').forEach(c => c.onclick = () => { list.splice(c.dataset.sd, 1); save(list); });
   $('#sclean').onclick = () => save(list.filter(x => !x.done));
   $('#sclear').onclick = () => confirm('Vider la liste ?') && save([]);
-  $('#sshare').onclick = async () => { const t = list.filter(x => !x.done).map(x => `- ${[x.q ? fmtQty(x.q) : '', x.u, x.name].filter(Boolean).join(' ')}`).join('\n'); try { if (navigator.share) await navigator.share({ title: 'Courses', text: t }); else await copyText(t); } catch {} };
+  $('#sshare').onclick = async () => { const t = list.filter(x => !x.done).map(x => `- ${[...itemQty(x), x.name].filter(Boolean).join(' ')}`).join('\n'); try { if (navigator.share) await navigator.share({ title: 'Courses', text: t }); else await copyText(t); } catch {} };
 }
 
 // Copie sans API réservée au HTTPS (l'app peut tourner en http:// sur le réseau local)
@@ -334,7 +373,8 @@ function pickRecipe(slotKey) {
 }
 
 // ---------- routeur ----------
-function route() { const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : 'list'; m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : renderList(); }
+let ready = false;
+function route() { if (!ready) return; const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : 'list'; m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : renderList(); }
 addEventListener('hashchange', route);
 
 function syncDirty() { // renvoie au serveur ce qui a été modifié hors-ligne
@@ -349,7 +389,7 @@ async function reloadServer() { serverRecipes = await (await fetch('/api/recipes
   } catch {}
   if (!serverMode) userRecipes = store.get('user', []);
   photos = store.get('photos', {}); favs = new Set(store.get('favs', []));
-  buildFilters(); setView(view); updateBadge(); route();
+  ready = true; buildFilters(); setView(view); updateBadge(); route();
   if (serverMode && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 })();
