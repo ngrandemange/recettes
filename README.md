@@ -31,3 +31,9 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - Minuteurs : enregistrés avec leur heure de fin, repris à la réouverture de l'app.
 - Courses : fusion des unités (g/kg, ml/cl/l, c. à c./c. à s.) et des pluriels (gousse/gousses).
 - Tests : `npm test` (import + API avec un vrai serveur sur base temporaire).
+
+## Journal, frigo, garde-manger
+- Fiche recette → « 📓 Mon journal » : date, note (1 à 5), commentaire. Proposé aussi à la fin du mode cuisine. Tris « Pas cuisinée depuis longtemps » et « Mieux notées », badge ★ sur les vignettes.
+- 🧊 Frigo : ingrédients présents → recettes classées par ingrédients manquants, bouton « 🛒 Le manque ».
+- Garde-manger : ce qui est toujours à la maison n'est jamais ajouté à la liste de courses (supprimable à tout moment).
+- Journal, garde-manger, favoris, courses et planning sont dans la table `kv` (à normaliser plus tard) ; inclus dans l'export JSON.
