@@ -6,7 +6,11 @@ let serverMode = false, serverRecipes = null, cache = {};
 const store = {
   get(k, d) { if (serverMode && SK.has(k)) return k in cache ? cache[k] : d; try { const v = localStorage.getItem('rec.' + k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) {
-    if (serverMode && SK.has(k)) { cache[k] = v; fetch('/api/kv/' + k, { method: 'PUT', body: JSON.stringify(v) }).catch(() => {}); return; }
+    if (serverMode && SK.has(k)) { // copie locale + drapeau « à synchroniser » si le serveur est injoignable
+      cache[k] = v; try { localStorage.setItem('rec.' + k, JSON.stringify(v)); } catch {}
+      fetch('/api/kv/' + k, { method: 'PUT', body: JSON.stringify(v) }).then(r => { if (!r.ok) throw 0; try { localStorage.removeItem('rec.dirty.' + k); } catch {} }).catch(() => { try { localStorage.setItem('rec.dirty.' + k, '1'); } catch {} });
+      return;
+    }
     try { localStorage.setItem('rec.' + k, JSON.stringify(v)); } catch (e) { alert('Stockage plein : photo trop lourde ?'); }
   }
 };
@@ -17,7 +21,7 @@ const fmtQty = q => { if (!q) return ''; const r = Math.round(q * 100) / 100; re
 const DIFF = ['', 'Facile', 'Moyen', 'Difficile'];
 
 let userRecipes = [], photos = {}, favs = new Set();
-const all = () => [...userRecipes, ...(serverRecipes || window.RECIPES)].map(r => ({ ...r, total: r.prep + r.cook + r.rest, photo: photos[r.id] || r.photo }));
+const all = () => [...userRecipes, ...(serverRecipes || window.RECIPES).filter(b => !userRecipes.some(u => u.id === b.id))].map(r => ({ ...r, total: r.prep + r.cook + r.rest, photo: photos[r.id] || r.photo }));
 const byId = id => all().find(r => r.id === id);
 
 // ---------- thèmes & vue ----------
@@ -90,7 +94,9 @@ function renderList() {
   $('#main').innerHTML = `<div class="results-bar"><strong>${rs.length} recette${rs.length > 1 ? 's' : ''}</strong>
     <label>Trier : <select id="sort">${[['rel', 'Pertinence'], ['time', 'Plus rapide'], ['diff', 'Plus facile'], ['az', 'A → Z']].map(([v, l]) => `<option value="${v}" ${F.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
     ${act ? `<div class="active">${act}</div>` : ''}
-    ${rs.length ? `<div class="${view === 'grid' ? 'grid' : 'list'}">${rs.map(card).join('')}</div>` : `<div class="empty"><div style="font-size:3rem">🥕</div><p>Aucune recette ne correspond.</p><button class="btn" onclick="document.getElementById('fReset').click()">Réinitialiser les filtres</button></div>`}`;
+    ${rs.length ? `<div class="${view === 'grid' ? 'grid' : 'list'}">${rs.map(card).join('')}</div>` : `<div class="empty"><div style="font-size:3rem">🥕</div><p>Aucune recette ne correspond.</p><button class="btn" onclick="document.getElementById('fReset').click()">Réinitialiser les filtres</button></div>`}
+    <p style="text-align:center;margin:28px 0 8px"><button class="btn small" id="backup">💾 Sauvegarde &amp; export</button></p>`;
+  $('#backup').onclick = openBackup;
   $('#sort').onchange = e => { F.sort = e.target.value; renderList(); };
 }
 $('#main').addEventListener('click', e => { const b = e.target.closest('[data-fav]'); if (b) { e.preventDefault(); toggleFav(b.dataset.fav); } });
@@ -106,7 +112,7 @@ function renderDetail(id) {
   <div class="stats"><div class="stat"><b>${fmtMin(r.prep)}</b><span>Préparation</span></div><div class="stat"><b>${fmtMin(r.cook)}</b><span>Cuisson</span></div>${r.rest ? `<div class="stat"><b>${fmtMin(r.rest)}</b><span>Repos</span></div>` : ''}<div class="stat"><b>${fmtMin(r.total)}</b><span>Total</span></div><div class="stat"><b>${DIFF[r.difficulty]}</b><span>Difficulté</span></div></div>
   <div class="meta">🔥 ${r.method.map(esc).join(' · ')}</div>
   <div class="tags">${r.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
-  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? '<button class="btn" id="del">🗑 Supprimer</button>' : ''}</div></div></div>
+  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="edit">✏️ Modifier</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? `<button class="btn" id="del">${!serverMode && window.RECIPES.some(b => b.id === r.id) ? '↩ Rétablir l\'original' : '🗑 Supprimer'}</button>` : ''}</div></div></div>
   <div class="cols"><section class="panel"><h2>Ingrédients</h2><div class="servings"><button id="m" aria-label="Moins">−</button><b id="n">${n}</b> personnes <button id="p" aria-label="Plus">+</button></div><ul class="ing" id="ing">${ingHtml()}</ul></section>
   <section class="panel"><h2>Préparation</h2><ol class="steps">${r.steps.map((s, k) => `<li data-k="${k}"><div><span>${esc(s.t)}</span><div class="chiprow">${s.temp ? `<span class="pill temp">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill">${s.kind === 'repos' ? '💤 Repos' : '🔥 Cuisson'} ${fmtMin(s.timer)}</span><button class="tbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur</button>` : ''}</div></div></li>`).join('')}</ol></section></div></div>`;
   $('#ing').onchange = e => e.target.closest('li').classList.toggle('done', e.target.checked);
@@ -115,10 +121,11 @@ function renderDetail(id) {
   $('#print').onclick = () => print();
   $('#shop').onclick = () => addToShop(r, n);
   $('#cookmode').onclick = () => openCook(r, n);
+  $('#edit').onclick = () => openForm(r);
   document.querySelectorAll('.steps li').forEach(li => li.addEventListener('dblclick', () => li.classList.toggle('done')));
   $('#photo').onchange = e => resizePhoto(e.target.files[0]).then(d => { photos[r.id] = d; store.set('photos', photos); route(); });
   if ($('#rmphoto')) $('#rmphoto').onclick = () => { delete photos[r.id]; store.set('photos', photos); route(); };
-  if ($('#del')) $('#del').onclick = async () => { if (confirm('Supprimer cette recette ?')) { if (serverMode) { await fetch('/api/recipes/' + r.id, { method: 'DELETE' }); await reloadServer(); } else { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); } buildFilters(); location.hash = '#/'; } };
+  if ($('#del')) $('#del').onclick = async () => { if (confirm($('#del').textContent.includes('original') ? 'Rétablir la version d\'origine ?' : 'Supprimer cette recette ?')) { if (serverMode) { await fetch('/api/recipes/' + r.id, { method: 'DELETE' }); await reloadServer(); } else { userRecipes = userRecipes.filter(u => u.id !== r.id); store.set('user', userRecipes); } buildFilters(); location.hash = '#/'; } };
   scrollTo(0, 0);
 }
 function resizePhoto(file, m = 900) {
@@ -141,45 +148,96 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-time
 setInterval(() => { let ch = false; timers.forEach(t => { if (!t.done && Date.now() >= t.end) { t.done = true; beep(); ch = true; } }); if (timers.length) drawTimers(); }, 250);
 
 // ---------- nouvelle recette ----------
-$('#btnNew').onclick = () => {
+// Analyse d'une ligne d'ingrédient : « 2 c. à s. de concentré » -> {q:2,u:'c. à s.',n:'de concentré'}
+const UNIT = 'c\\. ?à ?[sc]\\.|cuill\\w+ à \\w+|kg|mg|g|cl|ml|dl|l|cm|pincées?|gousses?|boîtes?|sachets?|bouquets?|tranches?|poignées?|feuilles?|brins?|verres?|tasses?';
+const ING_RE = new RegExp('^([\\d.,/]+)\\s*(' + UNIT + ')?\\s+(.*)$', 'i');
+const parseIng = l => { const x = l.match(ING_RE); if (!x) return { q: 0, u: '', n: l }; const q = x[1].includes('/') ? x[1].split('/').reduce((a, b) => a / b) : parseFloat(x[1].replace(',', '.')); return { q: q || 0, u: x[2] || '', n: x[3] }; };
+const ingLine = i => [i.q || '', i.u, i.n].filter(Boolean).join(' ');
+const stepLine = s => [s.t, s.temp ? s.temp + '°C' : '', s.timer ? s.timer + ' min' + (s.kind === 'repos' ? ' repos' : '') : ''].filter((x, k) => k === 0 || x).join(' | ');
+const parseStep = l => { const [t, a, b] = l.split('|').map(x => x.trim()), s = { t }; [a, b].forEach(x => { if (!x) return; if (/°/.test(x)) s.temp = parseInt(x); else if (/\d/.test(x)) { s.timer = parseInt(x); s.kind = /repos/i.test(x) || /repos|frais/i.test(t) ? 'repos' : 'cuisson'; } }); return s; };
+
+function openForm(edit) {
   const m = $('#modal'); m.hidden = false;
-  const opt = a => a.map(v => `<option>${v}</option>`).join('');
-  m.innerHTML = `<form class="mbox" id="nf"><h2>Nouvelle recette</h2>
-  <div class="panel" style="margin-bottom:14px"><b>✨ Importer</b> <small id="imsg" style="color:var(--muted)">depuis une URL ou une photo (nécessite le serveur)</small><div class="toolbar" style="margin-top:8px"><input id="iurl" type="url" placeholder="https://…" style="flex:1;min-width:180px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button type="button" class="btn" id="igo">Importer l'URL</button><label class="btn">📸 Photo / scan<input id="iph" type="file" accept="image/*" capture="environment" hidden></label></div></div>
+  const types = ['Plat', 'Entrée', 'Dessert', 'Petit-déjeuner', 'Boisson', 'Base']; if (edit && !types.includes(edit.type)) types.push(edit.type);
+  const opt = a => a.map(v => `<option>${esc(v)}</option>`).join('');
+  m.innerHTML = `<form class="mbox" id="nf"><h2>${edit ? 'Modifier la recette' : 'Nouvelle recette'}</h2>
+  ${edit ? '' : `<div class="panel" style="margin-bottom:14px"><b>✨ Importer</b> <small id="imsg" style="color:var(--muted)">depuis une URL ou une photo (nécessite le serveur)</small><div class="toolbar" style="margin-top:8px"><input id="iurl" type="url" placeholder="https://…" style="flex:1;min-width:180px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface2)"><button type="button" class="btn" id="igo">Importer l'URL</button><label class="btn">📸 Photo / scan<input id="iph" type="file" accept="image/*" capture="environment" hidden></label></div></div>`}
   <div class="fld"><label>Titre</label><input name="title" required></div>
-  <div class="row2"><div class="fld"><label>Type</label><select name="type">${opt(['Plat', 'Entrée', 'Dessert', 'Petit-déjeuner', 'Boisson', 'Base'])}</select></div>
+  <div class="row2"><div class="fld"><label>Type</label><select name="type">${opt(types)}</select></div>
   <div class="fld"><label>Difficulté</label><select name="difficulty"><option value="1">Facile</option><option value="2">Moyen</option><option value="3">Difficile</option></select></div>
   <div class="fld"><label>Personnes</label><input name="servings" type="number" min="1" value="4"></div></div>
   <div class="row2"><div class="fld"><label>Préparation (min)</label><input name="prep" type="number" min="0" value="15"></div><div class="fld"><label>Cuisson (min)</label><input name="cook" type="number" min="0" value="20"></div><div class="fld"><label>Repos (min)</label><input name="rest" type="number" min="0" value="0"></div></div>
   <div class="fld"><label>Régimes (séparés par des virgules)</label><input name="diets" value="Vegan"></div>
   <div class="fld"><label>Méthodes de cuisson (virgules)</label><input name="method" value="Four"></div>
-  <div class="fld"><label>Ingrédients — un par ligne : « 200 g farine »</label><textarea name="ing" rows="5" placeholder="200 g farine&#10;2 oignons"></textarea></div>
-  <div class="fld"><label>Étapes — une par ligne. Syntaxe optionnelle : « texte | 180°C | 25 min »</label><textarea name="steps" rows="5" placeholder="Préchauffer et mélanger.&#10;Cuire au four | 180°C | 25 min"></textarea></div>
-  <div class="fld"><label>Photo</label><input name="photo" type="file" accept="image/*"></div>
+  <div class="fld"><label>Tags (virgules)</label><input name="tags" placeholder="rapide, brunch"></div>
+  <div class="fld"><label>Ingrédients — un par ligne : « 200 g farine »</label><textarea name="ing" rows="6" placeholder="200 g farine&#10;2 oignons"></textarea></div>
+  <div class="fld"><label>Étapes — une par ligne. Optionnel : « texte | 180°C | 25 min » (ajouter « repos » après les minutes pour un temps de repos)</label><textarea name="steps" rows="6" placeholder="Préchauffer et mélanger.&#10;Cuire au four | 180°C | 25 min&#10;Laisser tiédir | 10 min repos"></textarea></div>
+  <div class="fld"><label>${edit ? 'Nouvelle photo (vide = garder l\'actuelle)' : 'Photo'}</label><input name="photo" type="file" accept="image/*"></div>
   <div class="toolbar"><button class="btn primary">Enregistrer</button><button type="button" class="btn" id="cancel">Annuler</button></div></form>`;
   $('#cancel').onclick = () => { m.hidden = true; };
   const fill = r => { const f = $('#nf').elements, set = (k, v) => { f[k].value = v; };
     set('title', r.title); set('type', r.type); set('difficulty', r.difficulty); set('servings', r.servings); set('prep', r.prep); set('cook', r.cook); set('rest', r.rest);
-    set('diets', r.diets.join(', ')); set('method', r.method.join(', '));
-    set('ing', r.ingredients.map(i => [i.q || '', i.u, i.n].filter(Boolean).join(' ')).join('\n'));
-    set('steps', r.steps.map(s => [s.t, s.temp ? s.temp + '°C' : '', s.timer ? s.timer + ' min' : ''].filter((x, k) => k === 0 || x).join(' | ')).join('\n')); };
-  const imp = async (path, payload, label) => { const msg = $('#imsg'); msg.textContent = '⏳ ' + label + '…';
-    try { const r = await fetch('/api/import/' + path, { method: 'POST', body: JSON.stringify(payload) }), j = await r.json(); if (!r.ok) throw new Error(j.error); fill(j.recipe); msg.textContent = '✅ Importé (' + j.via + ') — relisez avant d\'enregistrer !'; }
-    catch (e) { msg.textContent = '⚠️ ' + e.message; } };
-  $('#igo').onclick = () => $('#iurl').value && imp('url', { url: $('#iurl').value }, 'Lecture de la page');
-  $('#iph').onchange = async e => { const d = await resizePhoto(e.target.files[0], 1600); imp('photo', { data: d.split(',')[1], mediaType: 'image/jpeg' }, 'Lecture de la photo'); };
+    set('diets', (r.diets || []).join(', ')); set('method', (r.method || []).join(', ')); set('tags', (r.tags || []).join(', '));
+    set('ing', r.ingredients.map(ingLine).join('\n')); set('steps', r.steps.map(stepLine).join('\n')); };
+  if (edit) fill(edit);
+  else {
+    const imp = async (path, payload, label) => { const msg = $('#imsg'); msg.textContent = '⏳ ' + label + '…';
+      try { const r = await fetch('/api/import/' + path, { method: 'POST', body: JSON.stringify(payload) }), j = await r.json(); if (!r.ok) throw new Error(j.error); fill(j.recipe); msg.textContent = '✅ Importé (' + j.via + ') — relisez avant d\'enregistrer !'; }
+      catch (e) { msg.textContent = '⚠️ ' + e.message; } };
+    $('#igo').onclick = () => $('#iurl').value && imp('url', { url: $('#iurl').value }, 'Lecture de la page');
+    $('#iph').onchange = async e => { const d = await resizePhoto(e.target.files[0], 1600); imp('photo', { data: d.split(',')[1], mediaType: 'image/jpeg' }, 'Lecture de la photo'); };
+  }
   $('#nf').onsubmit = async e => {
-    e.preventDefault(); const f = new FormData(e.target), list = k => f.get(k).split(',').map(s => s.trim()).filter(Boolean);
-    const ing = f.get('ing').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const x = l.match(/^([\d.,]+)\s*(\S+)?\s+(.*)$/); return x ? { q: parseFloat(x[1].replace(',', '.')), u: x[2] || '', n: x[3] } : { q: 0, u: '', n: l }; });
-    const steps = f.get('steps').split('\n').map(l => l.trim()).filter(Boolean).map(l => { const [t, a, b] = l.split('|').map(s => s.trim()), s = { t }; [a, b].forEach(x => { if (!x) return; if (/°/.test(x)) s.temp = parseInt(x); else if (/\d/.test(x)) { s.timer = parseInt(x); s.kind = /repos|frais/i.test(t) ? 'repos' : 'cuisson'; } }); return s; });
-    const file = f.get('photo');
-    const r = { id: 'u' + Date.now(), title: f.get('title'), emoji: '🍽️', hue: Math.floor(Math.random() * 360), type: f.get('type'), diets: list('diets'), difficulty: +f.get('difficulty'), prep: +f.get('prep'), cook: +f.get('cook'), rest: +f.get('rest'), method: list('method'), servings: +f.get('servings') || 1, tags: [], ingredients: ing, steps };
-    if (file && file.size) r.photo = await resizePhoto(file);
-    if (serverMode) { const ph = r.photo; delete r.photo; const j = await (await fetch('/api/recipes', { method: 'POST', body: JSON.stringify({ recipe: r, kind: 'manual' }) })).json(); r.id = j.id; if (ph) { photos[r.id] = ph; store.set('photos', photos); } await reloadServer(); }
-    else { userRecipes.unshift(r); store.set('user', userRecipes); }
-    m.hidden = true; buildFilters(); location.hash = '#/r/' + r.id;
+    e.preventDefault(); const f = new FormData(e.target), list = k => f.get(k).split(',').map(x => x.trim()).filter(Boolean), lines = k => f.get(k).split('\n').map(l => l.trim()).filter(Boolean);
+    const { total, photo: _p, ...base } = edit || {}, file = f.get('photo');
+    const r = { ...base, id: edit ? edit.id : 'u' + Date.now(), title: f.get('title'), emoji: base.emoji || '🍽️', hue: base.hue ?? Math.floor(Math.random() * 360), type: f.get('type'), diets: list('diets'), difficulty: +f.get('difficulty'), prep: +f.get('prep'), cook: +f.get('cook'), rest: +f.get('rest'), method: list('method'), servings: +f.get('servings') || 1, tags: list('tags'), ingredients: lines('ing').map(parseIng), steps: lines('steps').map(parseStep) };
+    const newPhoto = file && file.size ? await resizePhoto(file) : null;
+    try {
+      if (serverMode) {
+        const send = (url, method, b) => fetch(url, { method, body: JSON.stringify(b) }).then(x => { if (!x.ok) throw new Error('Erreur serveur'); return x.json(); });
+        if (edit) await send('/api/recipes/' + r.id, 'PUT', { recipe: r }); else r.id = (await send('/api/recipes', 'POST', { recipe: r, kind: 'manual' })).id;
+        if (newPhoto) { photos[r.id] = newPhoto; store.set('photos', photos); }
+        await reloadServer();
+      } else {
+        const orig = userRecipes.find(u => u.id === r.id); if (orig && orig.photo) r.photo = orig.photo; if (newPhoto) r.photo = newPhoto;
+        orig ? userRecipes[userRecipes.indexOf(orig)] = r : userRecipes.unshift(r); store.set('user', userRecipes);
+      }
+    } catch (err) { return alert('Enregistrement impossible (hors-ligne ?) : ' + err.message); }
+    m.hidden = true; buildFilters(); const h = '#/r/' + r.id; location.hash === h ? route() : (location.hash = h);
   };
-};
+}
+$('#btnNew').onclick = () => openForm();
+
+// ---------- sauvegarde / export ----------
+function openBackup() {
+  const m = $('#modal'); m.hidden = false;
+  m.innerHTML = `<div class="mbox"><h2>💾 Sauvegarde</h2><p style="color:var(--muted)">Un fichier JSON avec vos recettes, favoris, photos, liste de courses et planning. ${serverMode ? 'Le serveur garde aussi une copie quotidienne de la base (7 jours).' : ''}</p>
+  <div class="toolbar"><button class="btn primary" id="bx">⬇️ Exporter</button><label class="btn">⬆️ Restaurer / fusionner<input id="bi" type="file" accept="application/json,.json" hidden></label><button class="btn" id="bc">Fermer</button></div>
+  <p style="color:var(--muted);font-size:.85rem">La restauration ajoute les recettes absentes et fusionne favoris, photos et planning ; elle ne supprime rien.</p></div>`;
+  $('#bc').onclick = () => { m.hidden = true; };
+  $('#bx').onclick = () => {
+    const d = { app: 'mes-recettes', version: 1, exported: new Date().toISOString(), recipes: serverMode ? serverRecipes : userRecipes, favs: [...favs], photos, shop: shopList(), plan: store.get('plan', {}) };
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' })); a.download = 'recettes-' + d.exported.slice(0, 10) + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
+  $('#bi').onchange = async e => {
+    let d; try { d = JSON.parse(await e.target.files[0].text()); } catch { return toast('Fichier illisible'); }
+    if (d.app !== 'mes-recettes' || !Array.isArray(d.recipes)) return toast('Ce fichier n\'est pas une sauvegarde');
+    const have = new Set(all().map(r => r.id)); let added = 0;
+    try {
+      for (const r of d.recipes) {
+        if (!r || !r.id || have.has(r.id)) continue;
+        if (serverMode) { const x = await fetch('/api/recipes', { method: 'POST', body: JSON.stringify({ id: r.id, recipe: r, kind: 'manual' }) }); if (!x.ok) continue; } else userRecipes.push(r);
+        added++;
+      }
+    } catch { return toast('Restauration interrompue (hors-ligne ?)'); }
+    if (!serverMode) store.set('user', userRecipes); else await reloadServer();
+    favs = new Set([...favs, ...(d.favs || [])]); store.set('favs', [...favs]);
+    photos = { ...photos, ...(d.photos || {}) }; store.set('photos', photos);
+    store.set('plan', { ...store.get('plan', {}), ...(d.plan || {}) });
+    if (!shopList().length && Array.isArray(d.shop)) store.set('shop', d.shop);
+    m.hidden = true; buildFilters(); updateBadge(); route(); toast(`✅ ${added} recette${added > 1 ? 's' : ''} ajoutée${added > 1 ? 's' : ''}`);
+  };
+}
 addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; drawer(false); } if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); $('#q').focus(); } });
 
 // ---------- mode cuisine ----------
@@ -272,14 +330,19 @@ function pickRecipe(slotKey) {
 function route() { const h = location.hash, m = h.match(/^#\/r\/(.+)$/); drawer(false); document.body.dataset.page = m ? 'detail' : h === '#/courses' ? 'shop' : h === '#/planning' ? 'plan' : 'list'; m ? renderDetail(m[1]) : h === '#/courses' ? renderShop() : h === '#/planning' ? renderPlan() : renderList(); }
 addEventListener('hashchange', route);
 
+function syncDirty() { // renvoie au serveur ce qui a été modifié hors-ligne
+  for (const k of SK) { try { const lv = localStorage.getItem('rec.' + k); if (localStorage.getItem('rec.dirty.' + k) && lv) store.set(k, cache[k] = JSON.parse(lv)); } catch {} }
+}
+addEventListener('online', () => serverMode && syncDirty());
 async function reloadServer() { serverRecipes = await (await fetch('/api/recipes')).json(); }
 (async () => {
   try { // le serveur est-il là ? sinon mode local (maquette statique)
     const r = await fetch('/api/recipes', { signal: AbortSignal.timeout(2000) });
-    if (r.ok && /json/.test(r.headers.get('content-type') || '')) { serverRecipes = await r.json(); cache = await (await fetch('/api/kv')).json(); serverMode = true; }
+    if (r.ok && /json/.test(r.headers.get('content-type') || '')) { serverRecipes = await r.json(); cache = await (await fetch('/api/kv')).json(); serverMode = true; syncDirty(); }
   } catch {}
   if (!serverMode) userRecipes = store.get('user', []);
   photos = store.get('photos', {}); favs = new Set(store.get('favs', []));
   buildFilters(); setView(view); updateBadge(); route();
+  if (serverMode && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 })();

@@ -20,3 +20,8 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - Planning : plusieurs plats par repas (entrée + plat + dessert…).
 - Mode cuisine (fiche → « 👩‍🍳 Mode cuisine ») : une étape par écran, swipe ou flèches, minuteur en un geste, ingrédients de l'étape, écran maintenu allumé (Wake Lock).
 - Hébergement : voir `DEPLOY.md` (Dockerfile + fly.toml, mot de passe `APP_PASSWORD`, limite d'imports).
+
+## Sauvegarde, PWA, modification
+- Bouton « ✏️ Modifier » sur chaque fiche ; « 💾 Sauvegarde & export » en bas de la liste (export/restauration JSON).
+- PWA : `manifest.webmanifest`, `sw.js` (réseau d'abord, cache hors-ligne), icônes ; active seulement en mode serveur.
+- `./deploy.sh <nom>` : déploiement Fly.io guidé (voir `DEPLOY.md`).
