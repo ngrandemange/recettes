@@ -37,3 +37,16 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - 🧊 Frigo : ingrédients présents → recettes classées par ingrédients manquants, bouton « 🛒 Le manque ».
 - Garde-manger : ce qui est toujours à la maison n'est jamais ajouté à la liste de courses (supprimable à tout moment).
 - Journal, garde-manger, favoris, courses et planning sont dans la table `kv` (à normaliser plus tard) ; inclus dans l'export JSON.
+
+## Fonctions avancées
+- **Recherche tolérante aux fautes** (« humous », « chicches »), filtres **Saison** (avec la saison en cours), **Collection**, **Riche en protéines**.
+- **Recettes de base réutilisables** : `1 @Pâte brisée vegan` dans les ingrédients ; la liste de courses et le frigo les développent (récursif, sans boucle).
+- **Substitutions vegan** : suggestions pour les recettes non étiquetées Vegan (œuf, lait, beurre, crème, fromage, miel, viande…).
+- **Valeurs nutritionnelles** : estimation par portion à partir d'une table interne (`app/lib.js`), affichée seulement si ≥ 60 % des ingrédients sont reconnus ; indicatif.
+- **Adapter à mon moule** : rond / carré / rectangle, quantités × rapport des surfaces.
+- **Mode cuisine** : 🔊 lecture à voix haute, 🎤 commandes vocales (suivant, précédent, répète, minuteur, ingrédients, terminé) si le navigateur les propose.
+- **Minuteurs** : libres (⏱ +), +1 min à la sonnerie, notification si l'app est en arrière-plan et la permission accordée.
+- **Planning** : « ✨ Proposer la semaine » (saison, notes, ancienneté, temps en semaine, dessert le dimanche), annulable.
+- **Import** : détection des doublons (adresse canonique), photo de la page récupérée, source mémorisée ; refus des adresses privées à chaque redirection.
+- **Impression** : ingrédients et étapes sur deux colonnes.
+- Logique pure dans `app/lib.js`, testée par `server/test-lib.js` (comme `npm test`).

@@ -7,5 +7,10 @@ const html = `<html><script type="application/ld+json">{"@context":"https://sche
   assert.deepEqual(r.recipe.ingredients[0], { q: 200, u: 'g', n: 'farine' }); assert.equal(r.recipe.ingredients[2].q, .5); assert.equal(r.recipe.steps.length, 2);
   assert.throws(() => normalize({ title: 'x', ingredients: [], steps: [] }));
   assert.deepEqual(normalize({ title: 't', difficulty: 9, ingredients: [{ n: 'a' }], steps: [{ t: 's', temp: 9999, timer: 5, kind: 'zz' }] }).steps[0], { t: 's', timer: 5, kind: 'cuisson' });
+  const { canonicalUrl, isPrivate } = require('./import');
+  assert.equal(canonicalUrl('https://www.Exemple.fr/recette/?utm_source=x&b=2&a=1&fbclid=z#haut'), 'https://exemple.fr/recette?a=1&b=2');
+  assert.equal(canonicalUrl('https://exemple.fr/'), 'https://exemple.fr/'); assert.equal(canonicalUrl('ftp://x'), null); assert.equal(canonicalUrl('pas une url'), null);
+  for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.5', '172.20.0.1', '169.254.169.254', '100.64.0.1', '::1', 'fd00::1', '::ffff:10.0.0.1']) assert.ok(isPrivate(ip), ip + ' doit être refusée');
+  for (const ip of ['8.8.8.8', '93.184.216.34', '172.32.0.1', '100.128.0.1']) assert.ok(!isPrivate(ip), ip + ' est publique');
   console.log('tests OK');
 })();

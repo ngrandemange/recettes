@@ -71,14 +71,46 @@ function normalize(r) {
   return out;
 }
 
-// ---- SSRF : refuse les adresses privées ----
-const isPrivate = ip => net.isIPv4(ip) ? /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(ip) : /^(::1|fc|fd|fe80)/i.test(ip);
+// ---- SSRF : refuse les adresses privées, à chaque redirection ----
+const isPrivate = ip => { ip = ip.replace(/^::ffff:/i, ''); return net.isIPv4(ip) ? /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.)/.test(ip) : /^(::1?$|fc|fd|fe80)/i.test(ip); };
+async function assertPublic(host) { if (process.env.ALLOW_PRIVATE_FETCH === '1') return; for (const a of await dns.lookup(host, { all: true })) if (isPrivate(a.address)) throw new Error('Adresse interdite'); }
+async function safeFetch(url, headers, timeout) {
+  let u = new URL(url);
+  for (let hop = 0; hop < 5; hop++) {
+    if (!/^https?:$/.test(u.protocol)) throw new Error('URL non supportée');
+    await assertPublic(u.hostname);
+    const r = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(timeout), headers });
+    if (r.status >= 300 && r.status < 400 && r.headers.get('location')) { u = new URL(r.headers.get('location'), u); continue; }
+    return r;
+  }
+  throw new Error('Trop de redirections');
+}
 async function fetchPage(url) {
-  const u = new URL(url); if (!/^https?:$/.test(u.protocol)) throw new Error('URL non supportée');
-  for (const a of await dns.lookup(u.hostname, { all: true })) if (isPrivate(a.address)) throw new Error('Adresse interdite');
-  const r = await fetch(u, { redirect: 'follow', signal: AbortSignal.timeout(15000), headers: { 'user-agent': 'RecettesImporter/0.1', accept: 'text/html' } });
+  const r = await safeFetch(url, { 'user-agent': 'RecettesImporter/0.1', accept: 'text/html' }, 15000);
   if (!r.ok) throw new Error('Page inaccessible (' + r.status + ')');
   return (await r.text()).slice(0, 2_000_000);
+}
+const sniff = b => b.length > 12 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF ? 'image/jpeg'
+  : b.length > 12 && b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) ? 'image/png'
+  : b.length > 12 && b.slice(0, 4).toString('latin1') === 'RIFF' && b.slice(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
+// Photo de la page importée : data URL (5 Mo max, type vérifié par signature) ou null
+async function fetchImageData(url) {
+  try {
+    const r = await safeFetch(url, { 'user-agent': 'RecettesImporter/0.1', accept: 'image/*' }, 10000);
+    if (!r.ok || (+r.headers.get('content-length') || 0) > 5e6) return null;
+    const buf = Buffer.from(await r.arrayBuffer()), mime = buf.length <= 5e6 && sniff(buf);
+    return mime ? `data:${mime};base64,${buf.toString('base64')}` : null;
+  } catch { return null; }
+}
+// Adresse canonique pour détecter les doublons : sans www, sans #, sans paramètres de suivi, sans « / » final
+function canonicalUrl(url) {
+  try {
+    const u = new URL(url); if (!/^https?:$/.test(u.protocol)) return null;
+    for (const k of [...u.searchParams.keys()]) if (/^(utm_|mc_)/i.test(k) || /^(fbclid|gclid|igshid)$/i.test(k)) u.searchParams.delete(k);
+    u.searchParams.sort(); u.hash = '';
+    const path = u.pathname.length > 1 ? u.pathname.replace(/\/+$/, '') : u.pathname;
+    return `${u.protocol}//${u.host.toLowerCase().replace(/^www\./, '')}${path}${u.search}`;
+  } catch { return null; }
 }
 const pageText = html => txt(html.replace(/<(script|style|nav|footer|header|svg)[\s\S]*?<\/\1>/gi, ' ')).slice(0, 30000);
 
@@ -93,11 +125,11 @@ async function importUrl(url, { html } = {}) {
     } else { // sans clé : parseur d'ingrédients minimal
       recipe = { title: j.title, type: 'Plat', difficulty: 1, prep: j.prep, cook: j.cook, servings: j.servings, ingredients: j.ingredientsRaw.map(parseIngredient), steps: j.stepsRaw.map(t => ({ t })) }; via = 'jsonld';
     }
-    var image = j.image;
+    var image = j.image; // adresse absolue ou relative à la page
   } else {
     recipe = await callClaude({ model: MODEL_TEXT, content: `Texte brut d'une page web contenant une recette :\n${pageText(html)}` }); via = 'page+claude';
   }
-  return { recipe: normalize(recipe), via, source_url: url, image };
+  return { recipe: normalize(recipe), via, source_url: canonicalUrl(url) || url, imageData: image ? await fetchImageData(new URL(image, url).href) : null };
 }
 function parseIngredient(s) { // repli sans IA
   const m = /^\s*([\d.,/]+)\s*(g|kg|cl|ml|l|c\.? ?à ?[sc]\.?|cuill[^ ]*|pincées?|gousses?|boîtes?)?\s*(?:d['e ]\s*|de |du |des )?(.*)$/i.exec(s);
@@ -110,4 +142,4 @@ async function importPhoto(base64, mediaType) {
   const recipe = await callClaude({ model: MODEL_VISION, content: [{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } }, { type: 'text', text: "Transcris et structure la recette de cette photo (imprimée ou manuscrite). Ne complète pas ce qui est illisible." }] });
   return { recipe: normalize(recipe), via: 'photo+claude' };
 }
-module.exports = { importUrl, importPhoto, extractJsonLd, fromJsonLd, normalize, parseIngredient };
+module.exports = { isPrivate, sniff, canonicalUrl, safeFetch, importUrl, importPhoto, extractJsonLd, fromJsonLd, normalize, parseIngredient };

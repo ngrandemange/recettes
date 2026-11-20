@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS recipes (
 CREATE TABLE IF NOT EXISTS ingredients (
   recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
   pos INTEGER NOT NULL, qty REAL, unit TEXT, name TEXT NOT NULL,
+  ref TEXT,                                  -- recette de base réutilisée (id), ex. pâte brisée
   PRIMARY KEY (recipe_id, pos)
 );
 CREATE TABLE IF NOT EXISTS steps (
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS steps (
 -- Étiquettes : régimes, méthodes, tags (table unique, facettes par "facet")
 CREATE TABLE IF NOT EXISTS recipe_labels (
   recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-  facet TEXT NOT NULL CHECK (facet IN ('diet','method','tag')),
+  facet TEXT NOT NULL CHECK (facet IN ('diet','method','tag','season','collection')),
   label TEXT NOT NULL,
   PRIMARY KEY (recipe_id, facet, label)
 );
