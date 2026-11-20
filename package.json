@@ -1,0 +1,13 @@
+{
+  "name": "mes-recettes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App perso de gestion de recettes (végétal), serveur Node sans dépendance + SQLite",
+  "scripts": {
+    "start": "node server/server.js",
+    "test": "node --no-warnings server/test.js && node --no-warnings server/test-lib.js && node --no-warnings server/test-api.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

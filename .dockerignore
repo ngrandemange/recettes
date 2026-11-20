@@ -1,0 +1,5 @@
+server/recettes.db*
+.git
+node_modules
+.env
+data

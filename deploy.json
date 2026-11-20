@@ -1,0 +1,44 @@
+{
+  "id": "recettes",
+  "name": "Mes Recettes",
+  "version": {
+    "from": "package.json"
+  },
+  "test": {
+    "unit": [
+      "node --no-warnings server/test.js",
+      "node --no-warnings server/test-lib.js",
+      "node --no-warnings server/test-api.js"
+    ]
+  },
+  "run": {
+    "internalPort": 8080,
+    "restart": "unless-stopped",
+    "user": "nas-account"
+  },
+  "health": {
+    "type": "http",
+    "path": "/healthz",
+    "expect": 200,
+    "timeoutSeconds": 60
+  },
+  "volumes": {
+    "data": {
+      "container": "/data",
+      "persist": true
+    }
+  },
+  "backup": {
+    "strategy": "sqlite",
+    "databases": [
+      "data/recettes.db"
+    ]
+  },
+  "imageGuard": {
+    "forbid": [
+      "**/.env",
+      "**/*.db",
+      "**/*.db-*"
+    ]
+  }
+}

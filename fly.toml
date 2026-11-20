@@ -1,0 +1,26 @@
+app = "mes-recettes"          # à changer : le nom doit être unique sur Fly.io
+primary_region = "cdg"
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[mounts]
+  source = "recettes_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Mes Recettes</title>
+<meta name="theme-color" content="#2f8f5b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Recettes">
+<link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/" aria-label="Accueil">🌱 <span>Mes Recettes</span></a>
+  <div class="search"><input id="q" type="search" placeholder="Rechercher : titre, ingrédient, méthode, tag…" autocomplete="off" aria-label="Rechercher"></div>
+  <div class="actions">
+    <a class="btn icon" href="#/frigo" title="Frigo et garde-manger" aria-label="Frigo">🧊</a>
+    <a class="btn icon" href="#/planning" title="Planning" aria-label="Planning">📅</a>
+    <a class="btn icon" href="#/courses" title="Courses" aria-label="Courses">🛒<span class="badge" id="shopc" hidden></span></a>
+    <button class="btn icon" id="btnFilters" title="Filtres" aria-label="Filtres">⚙️<span class="badge" id="fcount" hidden></span></button>
+    <div class="seg" role="group" aria-label="Affichage">
+      <button id="vGrid" title="Vignettes" aria-label="Vignettes">▦</button>
+      <button id="vList" title="Liste" aria-label="Liste">☰</button>
+    </div>
+    <button class="btn icon only-s" id="themeCycle" title="Changer de thème" aria-label="Changer de thème">🎨</button>
+    <div class="seg hide-s" role="group" aria-label="Thème">
+      <button data-th="light" title="Clair">☀️</button>
+      <button data-th="dark" title="Sombre">🌙</button>
+      <button data-th="gothic" title="Gothique">🦇</button>
+    </div>
+    <button class="btn primary" id="btnNew">＋ <span class="hide-s">Nouvelle recette</span></button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside id="filters" class="filters" aria-label="Filtres">
+    <div class="fhead"><h2>Filtres</h2><button class="btn small" id="fReset">Réinitialiser</button><button class="btn icon only-drawer" id="fClose" aria-label="Fermer">✕</button></div>
+    <div id="fbody"></div>
+  </aside>
+  <main id="main"></main>
+</div>
+<div id="scrim" class="scrim" hidden></div>
+
+<div id="timers" class="timers" aria-live="polite"></div>
+<div id="modal" class="modal" hidden></div>
+
+<script src="data.js"></script>
+<script src="lib.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
