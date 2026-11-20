@@ -9,7 +9,7 @@ Accès : `http://<ip-du-nas>:8090` depuis l'iPhone ou le portable, en Wi-Fi mais
 - **Gardez `APP_PASSWORD`** : il protège contre un appareil invité sur le Wi-Fi. En clair sur le réseau local, c'est un risque accepté.
 - **Adresse stable** : réservation DHCP du NAS dans la box, ou `http://<nom-du-nas>.local:8090` (Bonjour activé dans *Services de fichiers → Avancé*).
 
-**HTTPS** : fourni devant l'app par nas-deploy (autorité privée locale, à mettre en place dans cet outil). L'app reste en HTTP simple derrière lui ; ce qu'elle attend de l'outil :
+**HTTPS** : fourni devant l'app par nas-deploy (autorité privée locale, à mettre en place dans cet outil). Le besoin détaillé est dans le dépôt nas-deploy : `docs/requirements/REQ-002-https-on-the-home-network.html` (branche `claude/req-002-https-local`). L'app reste en HTTP simple derrière lui ; ce qu'elle attend de l'outil :
 - **Un hôte/port à elle, pas un sous-chemin** : les appels de l'app sont en chemins absolus (`/api/...`, `/sw.js`), un préfixe d'URL les casserait.
 - **Transmettre `X-Forwarded-For`** (la limite d'imports lit la dernière adresse) ; le contrôle de santé `GET /healthz` reste en HTTP direct, sans mot de passe.
 - **Certificat valable pour le nom ET l'IP utilisés sur l'iPhone** (ex. `nas.local` et l'IP du NAS), et certificat racine installé sur l'iPhone puis activé dans *Réglages → Général → Informations → Réglages de confiance du certificat*. Sans cela, Safari refuse le service worker.
