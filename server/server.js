@@ -35,9 +35,16 @@ if (db.prepare('SELECT COUNT(*) c FROM recipes').get().c === 0) {
 const body = req => new Promise((ok, ko) => { let b = '', n = 0; req.on('data', c => { n += c.length; if (n > 12e6) { ko(new Error('Trop gros')); req.destroy(); } else b += c; }); req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch (e) { ko(e); } }); });
 const send = (res, code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
 
+// Protection : mot de passe (HTTP Basic) si APP_PASSWORD est défini, limite de débit sur les imports payants.
+const PASS = process.env.APP_PASSWORD, hits = new Map();
+const authorized = req => { if (!PASS) return true; const [, b64] = (req.headers.authorization || '').split(' '); const given = Buffer.from(b64 || '', 'base64').toString().split(':').slice(1).join(':'); return given.length === PASS.length && require('node:crypto').timingSafeEqual(Buffer.from(given), Buffer.from(PASS)); };
+const limited = ip => { const now = Date.now(), a = (hits.get(ip) || []).filter(t => now - t < 3600e3); a.push(now); hits.set(ip, a); return a.length > (+process.env.IMPORTS_PER_HOUR || 30); };
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
+  if (u.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+  if (!authorized(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Mes Recettes", charset="UTF-8"' }); return res.end('Authentification requise'); }
   try {
+    if (u.pathname.startsWith('/api/import/') && limited(req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress)) return send(res, 429, { error: 'Trop d\'imports, réessayez plus tard' });
     if (u.pathname === '/api/recipes' && req.method === 'GET') return send(res, 200, listRecipes());
     if (u.pathname === '/api/recipes' && req.method === 'POST') { const b = await body(req); return send(res, 201, { id: saveRecipe(b.recipe, b.kind || 'manual', b.source_url) }); }
     let m;

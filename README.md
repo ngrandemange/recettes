@@ -15,3 +15,8 @@ Données d'exemple : `app/data.js`. Aucune dépendance, tout est stocké en loca
 ## Mode serveur / mode local
 L'interface détecte `/api/recipes` au démarrage : si le serveur répond, recettes en base SQLite (seed automatique depuis `app/data.js`), favoris/photos/courses/planning en table `kv`. Sinon (page statique), tout reste en `localStorage`.
 Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le planning), planning de semaine midi/soir, suppression de recettes.
+
+## Menus multi-plats, mode cuisine, hébergement
+- Planning : plusieurs plats par repas (entrée + plat + dessert…).
+- Mode cuisine (fiche → « 👩‍🍳 Mode cuisine ») : une étape par écran, swipe ou flèches, minuteur en un geste, ingrédients de l'étape, écran maintenu allumé (Wake Lock).
+- Hébergement : voir `DEPLOY.md` (Dockerfile + fly.toml, mot de passe `APP_PASSWORD`, limite d'imports).

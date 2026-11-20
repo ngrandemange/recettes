@@ -106,7 +106,7 @@ function renderDetail(id) {
   <div class="stats"><div class="stat"><b>${fmtMin(r.prep)}</b><span>Préparation</span></div><div class="stat"><b>${fmtMin(r.cook)}</b><span>Cuisson</span></div>${r.rest ? `<div class="stat"><b>${fmtMin(r.rest)}</b><span>Repos</span></div>` : ''}<div class="stat"><b>${fmtMin(r.total)}</b><span>Total</span></div><div class="stat"><b>${DIFF[r.difficulty]}</b><span>Difficulté</span></div></div>
   <div class="meta">🔥 ${r.method.map(esc).join(' · ')}</div>
   <div class="tags">${r.tags.map(t => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
-  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? '<button class="btn" id="del">🗑 Supprimer</button>' : ''}</div></div></div>
+  <div class="toolbar" style="margin-top:16px"><button class="btn" data-fav="${r.id}">${favs.has(r.id) ? '♥ Favori' : '♡ Favori'}</button><button class="btn primary" id="cookmode">👩‍🍳 Mode cuisine</button><button class="btn" id="shop">🛒 Courses</button><button class="btn" id="print">🖨 Imprimer</button><label class="btn">📷 Photo<input id="photo" type="file" accept="image/*" hidden></label>${photos[r.id] ? '<button class="btn" id="rmphoto">Retirer la photo</button>' : ''}${serverMode || userRecipes.some(u => u.id === r.id) ? '<button class="btn" id="del">🗑 Supprimer</button>' : ''}</div></div></div>
   <div class="cols"><section class="panel"><h2>Ingrédients</h2><div class="servings"><button id="m" aria-label="Moins">−</button><b id="n">${n}</b> personnes <button id="p" aria-label="Plus">+</button></div><ul class="ing" id="ing">${ingHtml()}</ul></section>
   <section class="panel"><h2>Préparation</h2><ol class="steps">${r.steps.map((s, k) => `<li data-k="${k}"><div><span>${esc(s.t)}</span><div class="chiprow">${s.temp ? `<span class="pill temp">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill">${s.kind === 'repos' ? '💤 Repos' : '🔥 Cuisson'} ${fmtMin(s.timer)}</span><button class="tbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur</button>` : ''}</div></div></li>`).join('')}</ol></section></div></div>`;
   $('#ing').onchange = e => e.target.closest('li').classList.toggle('done', e.target.checked);
@@ -114,6 +114,7 @@ function renderDetail(id) {
   $('#m').onclick = () => upd(-1); $('#p').onclick = () => upd(1);
   $('#print').onclick = () => print();
   $('#shop').onclick = () => addToShop(r, n);
+  $('#cookmode').onclick = () => openCook(r, n);
   document.querySelectorAll('.steps li').forEach(li => li.addEventListener('dblclick', () => li.classList.toggle('done')));
   $('#photo').onchange = e => resizePhoto(e.target.files[0]).then(d => { photos[r.id] = d; store.set('photos', photos); route(); });
   if ($('#rmphoto')) $('#rmphoto').onclick = () => { delete photos[r.id]; store.set('photos', photos); route(); };
@@ -132,11 +133,11 @@ function drawTimers() {
   $('#timers').innerHTML = timers.map((t, i) => `<div class="timer ${t.done ? 'ring' : ''}"><div class="clock">${clock(t.end - Date.now())}</div><div class="lbl">${t.done ? '⏰ Terminé ! ' : ''}${esc(t.label)}</div><button class="btn small" data-x="${i}">${t.done ? 'OK' : '✕'}</button></div>`).join('');
 }
 $('#timers').addEventListener('click', e => { const b = e.target.closest('[data-x]'); if (b) { timers.splice(+b.dataset.x, 1); drawTimers(); } });
-$('#main').addEventListener('click', e => {
-  const b = e.target.closest('[data-timer]'); if (!b) return;
+function startTimer(min, label) {
   try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch {} // débloque l'audio (iOS)
-  timers.push({ end: Date.now() + b.dataset.timer * 60000, label: b.dataset.label, done: false }); drawTimers();
-});
+  timers.push({ end: Date.now() + min * 60000, label, done: false }); drawTimers();
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-timer]'); if (b) startTimer(+b.dataset.timer, b.dataset.label); });
 setInterval(() => { let ch = false; timers.forEach(t => { if (!t.done && Date.now() >= t.end) { t.done = true; beep(); ch = true; } }); if (timers.length) drawTimers(); }, 250);
 
 // ---------- nouvelle recette ----------
@@ -181,6 +182,36 @@ $('#btnNew').onclick = () => {
 };
 addEventListener('keydown', e => { if (e.key === 'Escape') { $('#modal').hidden = true; drawer(false); } if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement.tagName)) { e.preventDefault(); $('#q').focus(); } });
 
+// ---------- mode cuisine ----------
+let wake = null;
+async function keepAwake(on) { try { if (on) wake = await navigator.wakeLock.request('screen'); else { await wake?.release(); wake = null; } } catch {} }
+function openCook(r, n) {
+  let k = 0, ing = false; const last = r.steps.length - 1, el = document.createElement('div'); el.className = 'cook';
+  document.body.append(el); document.body.classList.add('cooking'); keepAwake(true);
+  const qty = i => i.q ? `<b>${fmtQty(i.q * n / r.servings)}</b> ` : '';
+  const stepIngs = s => r.ingredients.filter(i => norm(i.n).split(/[^a-z]+/).some(w => w.length >= 5 && norm(s.t).includes(w)));
+  const close = (done) => { document.removeEventListener('keydown', keys); el.remove(); document.body.classList.remove('cooking'); keepAwake(false); if (done) toast('Bon appétit ! 🍽️'); };
+  const draw = () => {
+    const s = r.steps[k], si = stepIngs(s);
+    el.innerHTML = `<div class="cooktop"><button class="btn" data-c="x">✕ Quitter</button><b class="ct">${esc(r.title)}</b><button class="btn ${ing ? 'primary' : ''}" data-c="ing">🧺 Ingrédients</button></div>
+    <div class="cookbar"><i style="width:${(k + 1) / r.steps.length * 100}%"></i></div>
+    <div class="cookbody">${ing ? `<h2>Ingrédients · ${n} pers.</h2><ul class="ing">${r.ingredients.map(i => `<li>${qty(i)}${esc(i.u)} ${esc(i.n)}</li>`).join('')}</ul>` :
+      `<div class="cookn">Étape ${k + 1} sur ${r.steps.length}</div><p class="cooktext">${esc(s.t)}</p>
+      <div class="chiprow">${s.temp ? `<span class="pill temp big">🌡 ${s.temp} °C</span>` : ''}${s.timer ? `<span class="pill big">${s.kind === 'repos' ? '💤' : '🔥'} ${fmtMin(s.timer)}</span>` : ''}</div>
+      ${s.timer ? `<button class="tbtn bigbtn" data-timer="${s.timer}" data-label="${esc(r.title)} — étape ${k + 1}">▶ Lancer le minuteur (${fmtMin(s.timer)})</button>` : ''}
+      ${si.length ? `<div class="cookings"><small>Pour cette étape</small>${si.map(i => `<span class="pill">${qty(i)}${esc(i.u)} ${esc(i.n)}</span>`).join('')}</div>` : ''}`}</div>
+    <div class="cooknav"><button class="btn" data-c="prev" ${k === 0 ? 'disabled' : ''}>← Précédent</button><button class="btn primary" data-c="next">${k === last ? 'Terminer ✓' : 'Suivant →'}</button></div>`;
+  };
+  const go = d => { ing = false; if (k + d > last) return close(true); k = Math.max(0, k + d); draw(); };
+  const keys = e => { if (e.key === 'ArrowRight') go(1); else if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', keys);
+  el.addEventListener('click', e => { const c = e.target.closest('[data-c]')?.dataset.c; if (!c) return; if (c === 'x') close(); else if (c === 'ing') { ing = !ing; draw(); } else go(c === 'next' ? 1 : -1); });
+  let x0; el.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, { passive: true });
+  el.addEventListener('touchend', e => { const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 70) go(dx < 0 ? 1 : -1); });
+  draw();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && document.body.classList.contains('cooking')) keepAwake(true); });
+
 // ---------- liste de courses ----------
 const AISLES = [['🥬 Fruits & légumes', /carotte|oignon|\bail\b|poireau|tomate|poivron|banane|citron|basilic|épinard|potimarron|pomme de terre|gingembre|persil|courgette|champignon|salade|avocat|ciboulette/i],
   ['🧊 Frais', /tofu|seitan|tempeh|pâte brisée|yaourt|margarine/i],
@@ -222,19 +253,19 @@ function renderPlan() {
   const plan = store.get('plan', {}), days = weekDays(), fmt = d => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
   $('#main').innerHTML = `<div class="detail"><h1>📅 Planning</h1>
   <div class="toolbar" style="margin:12px 0"><button class="btn" id="pprev">←</button><b style="align-self:center">${fmt(days[0])} – ${fmt(days[6])}</b><button class="btn" id="pnext">→</button><button class="btn" id="ptoday">Aujourd'hui</button><span style="flex:1"></span><button class="btn primary" id="pshop">🛒 Courses de la semaine</button></div>
-  <div class="week">${days.map((d, i) => `<section class="panel"><h2>${DAYS[i]} <small style="color:var(--muted)">${fmt(d)}</small></h2>${SLOTS.map(([s, l]) => { const id = plan[dayKey(d) + '_' + s], r = id && byId(id); return `<div class="slot"><small>${l}</small>${r ? `<a href="#/r/${r.id}" class="slotr">${r.emoji} ${esc(r.title)}</a><button class="btn small" data-pc="${dayKey(d)}_${s}" aria-label="Retirer">✕</button>` : `<button class="btn small" data-pa="${dayKey(d)}_${s}">＋ Choisir</button>`}</div>`; }).join('')}</section>`).join('')}</div></div>`;
+  <div class="week">${days.map((d, i) => `<section class="panel"><h2>${DAYS[i]} <small style="color:var(--muted)">${fmt(d)}</small></h2>${SLOTS.map(([s, l]) => { const k = dayKey(d) + '_' + s, ids = [].concat(plan[k] || []).filter(byId); return `<div class="slot"><small>${l}</small><div class="slotl">${ids.map(id => { const r = byId(id); return `<div class="slotd"><a href="#/r/${r.id}" class="slotr">${r.emoji} ${esc(r.title)}</a><button class="btn small" data-pc="${k}|${id}" aria-label="Retirer">✕</button></div>`; }).join('')}<button class="btn small" data-pa="${k}">＋ ${ids.length ? 'Ajouter un plat' : 'Choisir'}</button></div></div>`; }).join('')}</section>`).join('')}</div></div>`;
   $('#pprev').onclick = () => { planOff--; renderPlan(); }; $('#pnext').onclick = () => { planOff++; renderPlan(); }; $('#ptoday').onclick = () => { planOff = 0; renderPlan(); };
-  $('#pshop').onclick = () => { const rs = days.flatMap(d => SLOTS.map(([s]) => byId(plan[dayKey(d) + '_' + s]))).filter(Boolean); if (!rs.length) return toast('Aucun repas planifié cette semaine'); rs.forEach(r => addToShop(r, r.servings)); };
-  $('#main').querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { delete plan[b.dataset.pc]; store.set('plan', plan); renderPlan(); });
+  $('#pshop').onclick = () => { const rs = days.flatMap(d => SLOTS.flatMap(([s]) => [].concat(plan[dayKey(d) + '_' + s] || []).map(byId))).filter(Boolean); if (!rs.length) return toast('Aucun repas planifié cette semaine'); rs.forEach(r => addToShop(r, r.servings)); };
+  $('#main').querySelectorAll('[data-pc]').forEach(b => b.onclick = () => { const [k, id] = b.dataset.pc.split('|'), left = [].concat(plan[k] || []).filter(x => x !== id); left.length ? plan[k] = left : delete plan[k]; store.set('plan', plan); renderPlan(); });
   $('#main').querySelectorAll('[data-pa]').forEach(b => b.onclick = () => pickRecipe(b.dataset.pa));
 }
 function pickRecipe(slotKey) {
   const m = $('#modal'); m.hidden = false;
   const draw = q => { const t = norm(q).split(/\s+/).filter(Boolean); return all().filter(r => t.every(w => norm(r.title + ' ' + r.type + ' ' + r.diets.join(' ')).includes(w))).map(r => `<button class="btn" data-pick="${r.id}" style="display:block;width:100%;text-align:left;margin-bottom:6px">${r.emoji} ${esc(r.title)} <small style="color:var(--muted)">· ${fmtMin(r.total)}</small></button>`).join('') || '<p class="empty">Aucun résultat</p>'; };
-  m.innerHTML = `<div class="mbox"><h2>Choisir une recette</h2><div class="fld"><input id="pq" placeholder="Rechercher…" autofocus></div><div id="pl">${draw('')}</div><button class="btn" id="pcancel">Annuler</button></div>`;
+  m.innerHTML = `<div class="mbox"><h2>Ajouter un plat au menu</h2><div class="fld"><input id="pq" placeholder="Rechercher…" autofocus></div><div id="pl">${draw('')}</div><button class="btn" id="pcancel">Annuler</button></div>`;
   $('#pq').oninput = e => { $('#pl').innerHTML = draw(e.target.value); };
   $('#pcancel').onclick = () => { m.hidden = true; };
-  $('#pl').onclick = e => { const b = e.target.closest('[data-pick]'); if (!b) return; const plan = store.get('plan', {}); plan[slotKey] = b.dataset.pick; store.set('plan', plan); m.hidden = true; renderPlan(); };
+  $('#pl').onclick = e => { const b = e.target.closest('[data-pick]'); if (!b) return; const plan = store.get('plan', {}), cur = [].concat(plan[slotKey] || []); plan[slotKey] = cur.includes(b.dataset.pick) ? cur : [...cur, b.dataset.pick]; store.set('plan', plan); m.hidden = true; renderPlan(); };
 }
 
 // ---------- routeur ----------
