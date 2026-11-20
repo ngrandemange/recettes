@@ -69,7 +69,7 @@ http.createServer(async (req, res) => {
   if (u.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
   if (!authorized(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Mes Recettes", charset="UTF-8"' }); return res.end('Authentification requise'); }
   try {
-    if (u.pathname.startsWith('/api/import/') && limited(req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress)) return send(res, 429, { error: 'Trop d\'imports, réessayez plus tard' });
+    if (u.pathname.startsWith('/api/import/') && limited(req.headers['x-forwarded-for']?.split(',').pop().trim() || req.socket.remoteAddress)) return send(res, 429, { error: 'Trop d\'imports, réessayez plus tard' });
     if (u.pathname === '/api/recipes' && req.method === 'GET') return send(res, 200, listRecipes());
     if (u.pathname === '/api/recipes' && req.method === 'POST') { const b = await body(req), rec = clean(b.recipe), want = typeof b.id === 'string' && /^[\w-]{1,40}$/.test(b.id) && !db.prepare('SELECT 1 FROM recipes WHERE id=?').get(b.id) ? b.id : undefined; return send(res, 201, { id: saveRecipe(rec, ['manual', 'url', 'photo'].includes(b.kind) ? b.kind : 'manual', typeof b.source_url === 'string' ? b.source_url.slice(0, 500) : null, want) }); }
     let m;
