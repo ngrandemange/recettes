@@ -9,8 +9,11 @@ Accès : `http://<ip-du-nas>:8090` depuis l'iPhone ou le portable, en Wi-Fi mais
 - **Gardez `APP_PASSWORD`** : il protège contre un appareil invité sur le Wi-Fi. En clair sur le réseau local, c'est un risque accepté.
 - **Adresse stable** : réservation DHCP du NAS dans la box, ou `http://<nom-du-nas>.local:8090` (Bonjour activé dans *Services de fichiers → Avancé*).
 
-**Conséquence de l'absence de HTTPS** : Safari refuse le service worker. Donc pas de mode hors-ligne et pas d'écran maintenu allumé. Hors du Wi-Fi maison, l'app est de toute façon injoignable.
-**Courses au supermarché** : avant de partir, bouton « 📋 Copier / partager » de la liste, puis coller dans Notes ou Rappels de l'iPhone. (Seule alternative sans service externe : une autorité de certification privée, voir plus bas.)
+**HTTPS** : fourni devant l'app par nas-deploy (autorité privée locale, à mettre en place dans cet outil). L'app reste en HTTP simple derrière lui ; ce qu'elle attend de l'outil :
+- **Un hôte/port à elle, pas un sous-chemin** : les appels de l'app sont en chemins absolus (`/api/...`, `/sw.js`), un préfixe d'URL les casserait.
+- **Transmettre `X-Forwarded-For`** (la limite d'imports lit la dernière adresse) ; le contrôle de santé `GET /healthz` reste en HTTP direct, sans mot de passe.
+- **Certificat valable pour le nom ET l'IP utilisés sur l'iPhone** (ex. `nas.local` et l'IP du NAS), et certificat racine installé sur l'iPhone puis activé dans *Réglages → Général → Informations → Réglages de confiance du certificat*. Sans cela, Safari refuse le service worker.
+- Une fois en HTTPS, le mode hors-ligne, l'installation en app et l'écran maintenu allumé fonctionnent ; ils se vérifient en ouvrant l'app sur l'iPhone, puis en coupant le Wi-Fi.
 
 ---
 
