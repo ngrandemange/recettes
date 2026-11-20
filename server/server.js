@@ -62,6 +62,7 @@ function backup() {
     fs.readdirSync(dir).filter(n => /^recettes-.*\.db$/.test(n)).sort().slice(0, -7).forEach(n => fs.unlinkSync(path.join(dir, n)));
   } catch (e) { console.error('backup:', e.message); }
 }
+if (!PASS) console.warn('⚠️  APP_PASSWORD non défini : l\'application est ouverte à tous. À éviter hors poste local.');
 backup(); setInterval(backup, 6 * 3600e3).unref();
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');

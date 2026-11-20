@@ -1,4 +1,32 @@
-# Déploiement sur NAS (Docker)
+# Déploiement avec nas-deploy (Synology, recommandé)
+
+Le dépôt contient déjà `deploy.json` (profil validé avec le schéma de nas-deploy), `package.json` (la version vient de là) et le `Dockerfile`.
+
+1. **Enregistrer l'app** (une seule fois), sur le portable :
+   ```powershell
+   nas-deploy register C:\Projets\recettes --port 8090
+   ```
+   Choisissez un port libre sur le NAS (8080 = Filmo, 8096 = Jellyfin, 5055 = Jellyseerr).
+2. **Secrets** : dans `~/.nas-deploy/settings.json`, section de l'app `recettes`, ajouter les variables (jamais dans le dépôt) :
+   ```json
+   "env": { "APP_PASSWORD": "un mot de passe long", "ANTHROPIC_API_KEY": "sk-ant-…" }
+   ```
+   `APP_PASSWORD` est obligatoire (sans lui l'app est ouverte à tous ; le serveur le signale au démarrage). `ANTHROPIC_API_KEY` est facultative : elle active l'import par URL et par photo.
+3. **Simuler puis déployer** :
+   ```powershell
+   nas-deploy deploy recettes --dry-run
+   nas-deploy deploy recettes
+   ```
+   Pipeline : test (`npm test`), build, contrôle de l'image (aucun `.env` ni `.db` dedans), smoke test local, envoi, sauvegarde SQLite en ligne, bascule derrière `GET /healthz`. `nas-deploy rollback recettes` revient en arrière.
+4. **HTTPS** (voir plus bas) puis ouvrir l'adresse sur l'iPhone.
+
+Particularités : le conteneur tourne sous votre compte NAS (`run.user: "nas-account"`, comme Filmo) à cause des ACL Synology ; les données vivent dans `/<volume>/docker/recettes/data` (base + `backups/` quotidiens de l'app, en plus des sauvegardes de la plateforme). Pas de changement du code de nas-deploy nécessaire.
+
+Sur le NAS, HTTPS : *Panneau de configuration → Portail de connexion → Avancé → Proxy inversé* (nom d'hôte HTTPS → `localhost:8090`) avec un certificat Let's Encrypt, ou Tailscale (`tailscale serve --bg 8090`).
+
+---
+
+# Alternative : docker compose sur un NAS ou un serveur
 
 ```bash
 cp .env.example .env     # puis éditer : APP_PASSWORD (obligatoire), ANTHROPIC_API_KEY (optionnel)
