@@ -41,6 +41,8 @@
     <div class="fapply only-drawer"><button class="btn primary" id="fApply">Voir les recettes</button></div>
   </aside>
   <div class="content">
+    <div id="qbar" class="qbar"></div>
+    <div id="home" class="home"></div>
     <div id="listbar" class="listbar">
       <button class="btn" id="btnFilters" aria-label="Filtres">⚙️ <span>Filtres</span><span class="badge" id="fcount" hidden></span></button>
       <strong id="rcount" aria-live="polite"></strong>
@@ -58,6 +60,7 @@
 <div id="scrim" class="scrim" hidden></div>
 
 <nav class="tabbar" aria-label="Navigation principale">
+  <a class="tbrand" href="#/" aria-label="Accueil"><i>🌱</i><span>Mes Recettes</span></a>
   <a href="#/" data-nav="list"><i>📖</i><span>Recettes</span></a>
   <a href="#/frigo" data-nav="fridge"><i>🧊</i><span>Frigo</span></a>
   <a href="#/planning" data-nav="plan"><i>📅</i><span>Planning</span></a>

@@ -12,7 +12,7 @@ if (!db.prepare('PRAGMA table_info(ingredients)').all().some(c => c.name === 're
 if (!/'season'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name='recipe_labels'").get().sql)) {
   db.exec("BEGIN; CREATE TABLE recipe_labels_new (recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE, facet TEXT NOT NULL CHECK (facet IN ('diet','method','tag','season','collection')), label TEXT NOT NULL, PRIMARY KEY (recipe_id, facet, label)); INSERT INTO recipe_labels_new SELECT recipe_id,facet,label FROM recipe_labels; DROP TABLE recipe_labels; ALTER TABLE recipe_labels_new RENAME TO recipe_labels; CREATE INDEX IF NOT EXISTS idx_labels ON recipe_labels(facet, label); COMMIT;");
 }
-const WEB = path.join(__dirname, '..', 'app'), MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const WEB = path.join(__dirname, '..', 'app'), MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 
 // Validation / normalisation d'une recette reçue (création, modification, restauration)
 function clean(r) {

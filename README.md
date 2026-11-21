@@ -59,3 +59,11 @@ Nouveautés : liste de courses fusionnée par rayon (depuis une fiche ou le plan
 - **Formulaire** : plein écran sur téléphone, en-tête et Enregistrer toujours visibles.
 - Cibles tactiles ≥ 44 px, zones sûres (encoche, barre d'accueil), focus clavier visible, animations réduites si demandé, fonds opaques pour les couches qui recouvrent du contenu.
 - `node tools/ui-audit.js <url>` rejoue le contrôle automatique sur 6 formats.
+
+## Refonte « trois ambiances »
+- **Clair « Marché »** (par défaut) : vert et betterave, titres Fraunces. **Sombre « Cuisine du soir »** : ardoise et ambre, titres Bricolage Grotesque. **Gothique « Grimoire »** : violet et or, Cinzel + EB Garamond, mêmes arrondis que les autres modes. Le dernier mode choisi est retenu.
+- Polices embarquées dans `app/fonts/` (WOFF2, sous-ensemble latin, licence OFL) : aucun accès Internet nécessaire.
+- Accueil : « Que cuisine-t-on ce soir ? », filtres rapides, plat du planning (ou suggestion de saison), rangée « De saison ».
+- Fiche : photo pleine largeur avec le titre, onglets Ingrédients / Préparation / Journal sur téléphone. Mode cuisine : anneau du minuteur, pastilles d'étapes.
+- Navigation : onglets flottants (téléphone, iPad vertical), rail (téléphone horizontal), colonne latérale (iPad horizontal, portable). Filtres complets dans un tiroir à toutes les tailles.
+- Sans photo, une assiette illustrée remplace l'image.
