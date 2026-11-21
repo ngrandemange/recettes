@@ -15,23 +15,22 @@
 <body>
 <header class="top">
   <a class="brand" href="#/" aria-label="Accueil">🌱 <span>Mes Recettes</span></a>
-  <div class="search"><input id="q" type="search" placeholder="Rechercher : titre, ingrédient, méthode, tag…" autocomplete="off" aria-label="Rechercher"></div>
+  <div class="search"><input id="q" type="search" placeholder="Rechercher…" autocomplete="off" enterkeyhint="search" aria-label="Rechercher une recette"></div>
+  <nav class="topnav" aria-label="Navigation">
+    <a href="#/" data-nav="list"><i>📖</i><span>Recettes</span></a>
+    <a href="#/frigo" data-nav="fridge"><i>🧊</i><span>Frigo</span></a>
+    <a href="#/planning" data-nav="plan"><i>📅</i><span>Planning</span></a>
+    <a href="#/courses" data-nav="shop"><i>🛒</i><span>Courses</span><b class="badge shopc" hidden></b></a>
+  </nav>
   <div class="actions">
-    <a class="btn icon" href="#/frigo" title="Frigo et garde-manger" aria-label="Frigo">🧊</a>
-    <a class="btn icon" href="#/planning" title="Planning" aria-label="Planning">📅</a>
-    <a class="btn icon" href="#/courses" title="Courses" aria-label="Courses">🛒<span class="badge" id="shopc" hidden></span></a>
-    <button class="btn icon" id="btnFilters" title="Filtres" aria-label="Filtres">⚙️<span class="badge" id="fcount" hidden></span></button>
-    <div class="seg" role="group" aria-label="Affichage">
-      <button id="vGrid" title="Vignettes" aria-label="Vignettes">▦</button>
-      <button id="vList" title="Liste" aria-label="Liste">☰</button>
+    <button class="btn icon" id="timerOpen" title="Nouveau minuteur" aria-label="Nouveau minuteur">⏱<span class="badge" id="tcount" hidden></span></button>
+    <button class="btn icon only-m" id="themeCycle" title="Changer de thème" aria-label="Changer de thème">🎨</button>
+    <div class="seg hide-m" role="group" aria-label="Thème">
+      <button data-th="light" title="Clair" aria-label="Thème clair">☀️</button>
+      <button data-th="dark" title="Sombre" aria-label="Thème sombre">🌙</button>
+      <button data-th="gothic" title="Gothique" aria-label="Thème gothique">🦇</button>
     </div>
-    <button class="btn icon only-s" id="themeCycle" title="Changer de thème" aria-label="Changer de thème">🎨</button>
-    <div class="seg hide-s" role="group" aria-label="Thème">
-      <button data-th="light" title="Clair">☀️</button>
-      <button data-th="dark" title="Sombre">🌙</button>
-      <button data-th="gothic" title="Gothique">🦇</button>
-    </div>
-    <button class="btn primary" id="btnNew">＋ <span class="hide-s">Nouvelle recette</span></button>
+    <button class="btn primary" id="btnNew" aria-label="Nouvelle recette">＋ <span class="hide-s">Nouvelle recette</span></button>
   </div>
 </header>
 
@@ -39,10 +38,34 @@
   <aside id="filters" class="filters" aria-label="Filtres">
     <div class="fhead"><h2>Filtres</h2><button class="btn small" id="fReset">Réinitialiser</button><button class="btn icon only-drawer" id="fClose" aria-label="Fermer">✕</button></div>
     <div id="fbody"></div>
+    <div class="fapply only-drawer"><button class="btn primary" id="fApply">Voir les recettes</button></div>
   </aside>
-  <main id="main"></main>
+  <div class="content">
+    <div id="qbar" class="qbar"></div>
+    <div id="home" class="home"></div>
+    <div id="listbar" class="listbar">
+      <button class="btn" id="btnFilters" aria-label="Filtres">⚙️ <span>Filtres</span><span class="badge" id="fcount" hidden></span></button>
+      <strong id="rcount" aria-live="polite"></strong>
+      <span class="grow"></span>
+      <label class="sortl"><span class="hide-s">Trier :</span>
+        <select id="sort" aria-label="Trier les recettes"><option value="rel">Pertinence</option><option value="time">Plus rapide</option><option value="diff">Plus facile</option><option value="az">A → Z</option><option value="stale">Pas cuisinée depuis longtemps</option><option value="rated">Mieux notées</option></select></label>
+      <div class="seg" role="group" aria-label="Affichage">
+        <button id="vGrid" title="Vignettes" aria-label="Vignettes">▦</button>
+        <button id="vList" title="Liste" aria-label="Liste">☰</button>
+      </div>
+    </div>
+    <main id="main"></main>
+  </div>
 </div>
 <div id="scrim" class="scrim" hidden></div>
+
+<nav class="tabbar" aria-label="Navigation principale">
+  <a class="tbrand" href="#/" aria-label="Accueil"><i>🌱</i><span>Mes Recettes</span></a>
+  <a href="#/" data-nav="list"><i>📖</i><span>Recettes</span></a>
+  <a href="#/frigo" data-nav="fridge"><i>🧊</i><span>Frigo</span></a>
+  <a href="#/planning" data-nav="plan"><i>📅</i><span>Planning</span></a>
+  <a href="#/courses" data-nav="shop"><i>🛒</i><span>Courses</span><b class="badge shopc" hidden></b></a>
+</nav>
 
 <div id="timers" class="timers" aria-live="polite"></div>
 <div id="modal" class="modal" hidden></div>

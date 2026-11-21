@@ -12,17 +12,17 @@ if (!db.prepare('PRAGMA table_info(ingredients)').all().some(c => c.name === 're
 if (!/'season'/.test(db.prepare("SELECT sql FROM sqlite_master WHERE name='recipe_labels'").get().sql)) {
   db.exec("BEGIN; CREATE TABLE recipe_labels_new (recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE, facet TEXT NOT NULL CHECK (facet IN ('diet','method','tag','season','collection')), label TEXT NOT NULL, PRIMARY KEY (recipe_id, facet, label)); INSERT INTO recipe_labels_new SELECT recipe_id,facet,label FROM recipe_labels; DROP TABLE recipe_labels; ALTER TABLE recipe_labels_new RENAME TO recipe_labels; CREATE INDEX IF NOT EXISTS idx_labels ON recipe_labels(facet, label); COMMIT;");
 }
-const WEB = path.join(__dirname, '..', 'app'), MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const WEB = path.join(__dirname, '..', 'app'), MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 
 // Validation / normalisation d'une recette reçue (création, modification, restauration)
 function clean(r) {
   if (!r || typeof r.title !== 'string' || !r.title.trim()) throw new Error('Titre requis');
-  const I = (x, lo, hi, d) => { x = Math.round(Number(x)); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; }, A = a => Array.isArray(a) ? a : [];
+  const I = (x, lo, hi, d) => { if (x === null || x === undefined || x === '') return d; x = Math.round(Number(x)); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; }, A = a => Array.isArray(a) ? a : [];
   return { title: r.title.trim().slice(0, 140), type: String(r.type || 'Plat').slice(0, 40), difficulty: I(r.difficulty, 1, 3, 1), prep: I(r.prep, 0, 1440, 0), cook: I(r.cook, 0, 1440, 0), rest: I(r.rest, 0, 10080, 0), servings: I(r.servings, 1, 100, 4),
     emoji: String(r.emoji || '🍽️').slice(0, 8), hue: I(r.hue, 0, 360, 200), diets: A(r.diets).map(String), method: A(r.method).map(String), tags: A(r.tags).map(String),
     seasons: A(r.seasons).map(String).filter(x => ["Printemps", "Été", "Automne", "Hiver", "Toute l'année"].includes(x)), collections: A(r.collections).map(x => String(x).trim().slice(0, 40)).filter(Boolean),
     ingredients: A(r.ingredients).filter(i => i && i.n).map(i => ({ q: Math.max(0, Number(i.q) || 0), u: String(i.u || ''), n: String(i.n), ref: typeof i.ref === 'string' && /^[\w-]{1,40}$/.test(i.ref) ? i.ref : null })),
-    steps: A(r.steps).filter(s => s && s.t).map(s => ({ t: String(s.t), temp: I(s.temp, 1, 350, null), timer: I(s.timer, 1, 10080, null), kind: s.kind === 'repos' || s.kind === 'cuisson' ? s.kind : null })) };
+    steps: A(r.steps).filter(s => s && s.t).map(s => { const temp = Number(s.temp) > 0 ? I(s.temp, 1, 350, null) : null, timer = Number(s.timer) > 0 ? I(s.timer, 1, 10080, null) : null; return { t: String(s.t), temp, timer, kind: timer && (s.kind === 'repos' || s.kind === 'cuisson') ? s.kind : null }; }) };
 }
 function saveRecipe(r, kind, src, fixedId, replace) {
   const id = fixedId || 'r' + Date.now().toString(36) + require('node:crypto').randomBytes(3).toString('hex');
@@ -69,7 +69,8 @@ const SEED_VERSION = 2;
   db.prepare("INSERT INTO kv VALUES('seedver',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(SEED_VERSION));
 })();
 const MAX_PHOTO = 8 * 1024 * 1024;
-const raw = (req, max) => new Promise((ok, ko) => { const parts = []; let n = 0; req.on('data', c => { n += c.length; if (n > max) { ko(Object.assign(new Error('Photo trop lourde (8 Mo max)'), { status: 413 })); req.destroy(); } else parts.push(c); }); req.on('end', () => ok(Buffer.concat(parts))); req.on('error', ko); });
+// Lit le corps en octets ; au-delà de max : 413 (le reste est lu puis jeté, la connexion reste utilisable pour répondre)
+const raw = (req, max, msg = 'Photo trop lourde (8 Mo max)') => new Promise((ok, ko) => { const parts = []; let n = 0, over = false; req.on('data', c => { n += c.length; if (over) return; if (n > max) { over = true; parts.length = 0; ko(Object.assign(new Error(msg), { status: 413 })); if (n > max * 4) req.destroy(); } else parts.push(c); }); req.on('end', () => { if (!over) ok(Buffer.concat(parts)); }); req.on('error', ko); });
 function putPhoto(id, buf, mime) { db.prepare('INSERT INTO photos VALUES(?,?,?,?,?) ON CONFLICT(recipe_id) DO UPDATE SET mime=excluded.mime,data=excluded.data,bytes=excluded.bytes,updated_at=excluded.updated_at').run(id, mime, buf, buf.length, Date.now()); }
 // Migration : anciennes photos stockées en texte dans la table kv -> BLOB
 (function migratePhotos() {
@@ -83,12 +84,19 @@ function putPhoto(id, buf, mime) { db.prepare('INSERT INTO photos VALUES(?,?,?,?
   if (Object.keys(left).length) db.prepare("UPDATE kv SET value=? WHERE key='photos'").run(JSON.stringify(left)); else db.prepare("DELETE FROM kv WHERE key='photos'").run();
   if (moved) console.log(`photos migrées vers la base : ${moved}`);
 })();
-const body = req => new Promise((ok, ko) => { let b = '', n = 0; req.on('data', c => { n += c.length; if (n > 12e6) { ko(new Error('Trop gros')); req.destroy(); } else b += c; }); req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch (e) { ko(e); } }); });
+const body = req => raw(req, 12e6, 'Requête trop volumineuse (12 Mo max)').then(buf => { try { return JSON.parse(buf.toString('utf8') || '{}'); } catch { throw Object.assign(new Error('JSON invalide'), { status: 400 }); } });
 const send = (res, code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
 
 // Protection : mot de passe (HTTP Basic) si APP_PASSWORD est défini, limite de débit sur les imports payants.
 const PASS = process.env.APP_PASSWORD, hits = new Map();
-const authorized = req => { if (!PASS) return true; const [, b64] = (req.headers.authorization || '').split(' '); const given = Buffer.from(b64 || '', 'base64').toString().split(':').slice(1).join(':'); return given.length === PASS.length && require('node:crypto').timingSafeEqual(Buffer.from(given), Buffer.from(PASS)); };
+const crypto = require('node:crypto'), digest = x => crypto.createHash('sha256').update(String(x), 'utf8').digest();
+const authorized = req => {
+  if (!PASS) return true;
+  const [scheme, b64] = String(req.headers.authorization || '').split(' ');
+  if (!/^basic$/i.test(scheme || '')) return false;
+  const dec = Buffer.from(b64 || '', 'base64').toString('utf8'), i = dec.indexOf(':');
+  return crypto.timingSafeEqual(digest(i < 0 ? '' : dec.slice(i + 1)), digest(PASS));
+};
 const limited = ip => { const now = Date.now(), a = (hits.get(ip) || []).filter(t => now - t < 3600e3); a.push(now); hits.set(ip, a); return a.length > (+process.env.IMPORTS_PER_HOUR || 30); };
 // Sauvegarde quotidienne de la base (7 dernières), à côté du fichier : /data/backups sur le volume
 function backup() {
@@ -101,8 +109,9 @@ function backup() {
 }
 if (!PASS) console.warn('⚠️  APP_PASSWORD non défini : l\'application est ouverte à tous. À éviter hors poste local.');
 backup(); setInterval(backup, 6 * 3600e3).unref();
-http.createServer(async (req, res) => {
-  const u = new URL(req.url, 'http://x');
+process.on('unhandledRejection', e => console.error('rejet non traité :', e && e.message));
+async function handle(req, res) {
+  let u; try { u = new URL(req.url, 'http://x'); } catch { res.writeHead(400); return res.end('Requête invalide'); }
   if (u.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
   if (!authorized(req)) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Mes Recettes", charset="UTF-8"' }); return res.end('Authentification requise'); }
   try {
@@ -131,6 +140,7 @@ http.createServer(async (req, res) => {
     if (u.pathname.startsWith('/api/')) return send(res, 404, { error: 'not found' });
     const f = path.join(WEB, path.normalize(u.pathname === '/' ? '/index.html' : u.pathname));
     if (!f.startsWith(WEB) || !fs.existsSync(f)) { res.writeHead(404); return res.end('404'); }
-    res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); fs.createReadStream(f).pipe(res);
-  } catch (e) { send(res, e.status || (e.code === 'NO_KEY' ? 501 : 400), { error: e.message }); }
-}).listen(process.env.PORT || 3000, () => console.log('http://localhost:' + (process.env.PORT || 3000)));
+    res.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream', 'cache-control': 'no-cache' }); fs.createReadStream(f).on('error', () => res.destroy()).pipe(res);
+  } catch (e) { if (!res.headersSent) send(res, e.status || (e.code === 'NO_KEY' ? 501 : 400), { error: e.message }); else res.destroy(); }
+}
+http.createServer((req, res) => { handle(req, res).catch(e => { console.error('erreur :', e && e.message); try { if (!res.headersSent) send(res, 500, { error: 'Erreur interne' }); else res.destroy(); } catch {} }); }).listen(process.env.PORT || 3000, () => console.log('http://localhost:' + (process.env.PORT || 3000)));

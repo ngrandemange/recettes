@@ -23,7 +23,20 @@ async function testMigration() {
   } finally { s.proc.kill(); }
   const again = await start({}, file); try { assert.equal((await (await J(again.base, '/api/recipes')).json()).length, 3, 'redémarrage : rien n\'est ré-ajouté'); } finally { again.proc.kill(); }
 }
+// Robustesse : rien ne doit arrêter le serveur
+async function testRobustesse() {
+  const s = await start({ APP_PASSWORD: 'abcd' }), net2 = require('node:net'), port = new URL(s.base).port;
+  const alive = async () => (await fetch(s.base + '/healthz')).status === 200;
+  try {
+    const auth = p => fetch(s.base + '/api/recipes', { headers: { authorization: 'Basic ' + Buffer.from(p).toString('base64') } });
+    assert.equal((await auth(':éééé')).status, 401, 'mot de passe accentué : refus'); assert.ok(await alive(), 'toujours en vie après un mot de passe accentué');
+    assert.equal((await auth('x:abcd')).status, 200, 'bon mot de passe'); assert.equal((await auth('x:abc')).status, 401);
+    const rawReq = txt => new Promise(ok => { const c = net2.connect(port, '127.0.0.1', () => c.end(txt)); let d = ''; c.on('data', x => d += x); c.on('close', () => ok(d)); c.on('error', () => ok(d)); });
+    assert.match(await rawReq('GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n'), /^HTTP\/1\.1 400/, 'requête mal formée : 400'); assert.ok(await alive(), 'toujours en vie après GET //');
+  } finally { s.proc.kill(); }
+}
 (async () => {
+  await testRobustesse();
   await testMigration();
   let { proc, base } = await start();
   try {
@@ -76,6 +89,14 @@ async function testMigration() {
       const again = await (await J(ok.base, '/api/import/url', 'POST', { url: fixture })).json(); assert.deepEqual(again.duplicate, { id: idi, title: 'Crumble importé' }, 'doublon détecté malgré les paramètres de suivi');
       assert.equal((await (await J(ok.base, '/api/recipes')).json()).find(y => y.id === idi).source, fixture, 'source exposée');
     } finally { ok.proc.kill(); fx.close(); }
+    // accents préservés dans un gros envoi ; valeurs vides jamais transformées en 1 ; 413 sur un envoi énorme
+    const big = 'é'.repeat(100000), idU = (await (await J(base, '/api/recipes', 'POST', { recipe: { ...r, title: 'Accents', ingredients: [{ q: 1, n: big }], steps: [{ t: 's', temp: null, timer: 0 }, { t: 'u', temp: '', timer: null, kind: 'repos' }] } })).json()).id;
+    const U = (await (await J(base, '/api/recipes')).json()).find(y => y.id === idU);
+    assert.equal(U.ingredients[0].n, big, 'aucun caractère abîmé'); assert.deepEqual(U.steps, [{ t: 's' }, { t: 'u' }], 'température/minuteur vides restent vides');
+    const huge = await fetch(base + '/api/recipes', { method: 'POST', body: JSON.stringify({ recipe: { title: 'x'.repeat(13e6) } }) }).catch(() => ({ status: 413 })); assert.equal(huge.status, 413, 'envoi trop volumineux : 413');
+    assert.equal((await fetch(base + '/healthz')).status, 200, 'toujours en vie après un envoi énorme');
+    // SSRF : un nom qui résout vers une adresse locale est refusé à la connexion
+    const ssrf = await (await J(base, '/api/import/url', 'POST', { url: 'http://localhost:' + new URL(base).port + '/' })).json(); assert.match(ssrf.error, /interdite/, 'localhost refusé');
     console.log('tests API OK');
   } finally { proc.kill(); fs.rmSync(dir, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exit(1); });
