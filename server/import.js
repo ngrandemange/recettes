@@ -48,8 +48,9 @@ function extractJsonLd(html) {
   while ((m = re.exec(html))) { try { const n = findRecipeNode(JSON.parse(m[1].trim())); if (n) return n; } catch {} }
   return null;
 }
+const splitSteps = s => String(s).split(/\r?\n+|<br\s*\/?>|<\/(?:li|p)>/i).map(txt).filter(Boolean);
 function flattenSteps(ins) {
-  return [].concat(ins || []).flatMap(i => typeof i === 'string' ? txt(i).split(/\n+/) : i.itemListElement ? flattenSteps(i.itemListElement) : [txt(i.text || i.name || '')]).filter(Boolean);
+  return [].concat(ins || []).flatMap(i => typeof i === 'string' ? splitSteps(i) : i.itemListElement ? flattenSteps(i.itemListElement) : splitSteps(i.text || i.name || '')).filter(Boolean);
 }
 function fromJsonLd(n) {
   const img = [].concat(n.image || [])[0];
@@ -71,22 +72,59 @@ function normalize(r) {
   return out;
 }
 
-// ---- SSRF : refuse les adresses privées, à chaque redirection ----
-const isPrivate = ip => { ip = ip.replace(/^::ffff:/i, ''); return net.isIPv4(ip) ? /^(10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|0\.)/.test(ip) : /^(::1?$|fc|fd|fe80)/i.test(ip); };
-async function assertPublic(host) { if (process.env.ALLOW_PRIVATE_FETCH === '1') return; for (const a of await dns.lookup(host, { all: true })) if (isPrivate(a.address)) throw new Error('Adresse interdite'); }
-async function safeFetch(url, headers, timeout) {
+// ---- SSRF : refuse les adresses privées ou spéciales, à chaque redirection ----
+const http = require('node:http'), https = require('node:https');
+const BLOCK = new net.BlockList();
+for (const [a, p] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]]) BLOCK.addSubnet(a, p, 'ipv4');
+for (const [a, p] of [['::', 96], ['::1', 128], ['64:ff9b::', 96], ['100::', 64], ['2001:db8::', 32], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) BLOCK.addSubnet(a, p, 'ipv6');
+// ::ffff:a.b.c.d et ::ffff:7f00:1 -> a.b.c.d
+function mappedV4(ip) {
+  const m = /^(?:0{0,4}:){0,5}(?:0{0,4}:)?ffff:(.+)$/i.exec(ip.replace(/^\[|\]$/g, '')); if (!m) return null;
+  if (net.isIPv4(m[1])) return m[1];
+  const h = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(m[1]); if (!h) return null;
+  const a = parseInt(h[1], 16), b = parseInt(h[2], 16); return [a >> 8, a & 255, b >> 8, b & 255].join('.');
+}
+function isPrivate(ip) {
+  ip = String(ip).replace(/^\[|\]$/g, '');
+  const v4 = net.isIPv4(ip) ? ip : mappedV4(ip);
+  if (v4) return BLOCK.check(v4, 'ipv4');
+  return net.isIPv6(ip) ? BLOCK.check(ip, 'ipv6') : true; // inconnu = refusé
+}
+const allowPrivate = () => process.env.ALLOW_PRIVATE_FETCH === '1';
+// Résolution vérifiée, utilisée par la connexion elle-même : l'adresse contrôlée est celle qui est contactée
+function guardedLookup(host, opts, cb) {
+  require('node:dns').lookup(host, { ...opts, all: true }, (err, addrs) => {
+    if (err) return cb(err);
+    if (!allowPrivate() && addrs.some(a => isPrivate(a.address))) return cb(Object.assign(new Error('Adresse interdite'), { code: 'EPRIVATE' }));
+    opts.all ? cb(null, addrs) : cb(null, addrs[0].address, addrs[0].family);
+  });
+}
+// Requête GET minimale (Node http/https) : délai, taille maximale, redirections vérifiées
+function getOnce(u, headers, timeout, maxBytes) {
+  return new Promise((ok, ko) => {
+    if (net.isIP(u.hostname.replace(/^\[|\]$/g, '')) && !allowPrivate() && isPrivate(u.hostname)) return ko(new Error('Adresse interdite'));
+    const req = (u.protocol === 'https:' ? https : http).get(u, { headers, lookup: guardedLookup, timeout }, res => {
+      const parts = []; let n = 0;
+      res.on('data', c => { n += c.length; if (n > maxBytes) { req.destroy(Object.assign(new Error('Réponse trop volumineuse'), { status: 413 })); } else parts.push(c); });
+      res.on('end', () => { const body = Buffer.concat(parts); ok({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, headers: { get: k => res.headers[k.toLowerCase()] ?? null }, text: async () => body.toString('utf8'), arrayBuffer: async () => body }); });
+      res.on('error', ko);
+    });
+    req.on('timeout', () => req.destroy(new Error('Délai dépassé')));
+    req.on('error', e => ko(e.code === 'EPRIVATE' ? new Error('Adresse interdite') : e));
+  });
+}
+async function safeFetch(url, headers, timeout, maxBytes = 5e6) {
   let u = new URL(url);
   for (let hop = 0; hop < 5; hop++) {
     if (!/^https?:$/.test(u.protocol)) throw new Error('URL non supportée');
-    await assertPublic(u.hostname);
-    const r = await fetch(u, { redirect: 'manual', signal: AbortSignal.timeout(timeout), headers });
+    const r = await getOnce(u, headers, timeout, maxBytes);
     if (r.status >= 300 && r.status < 400 && r.headers.get('location')) { u = new URL(r.headers.get('location'), u); continue; }
     return r;
   }
   throw new Error('Trop de redirections');
 }
 async function fetchPage(url) {
-  const r = await safeFetch(url, { 'user-agent': 'RecettesImporter/0.1', accept: 'text/html' }, 15000);
+  const r = await safeFetch(url, { 'user-agent': 'RecettesImporter/0.1', accept: 'text/html' }, 15000, 4e6);
   if (!r.ok) throw new Error('Page inaccessible (' + r.status + ')');
   return (await r.text()).slice(0, 2_000_000);
 }
@@ -132,7 +170,7 @@ async function importUrl(url, { html } = {}) {
   return { recipe: normalize(recipe), via, source_url: canonicalUrl(url) || url, imageData: image ? await fetchImageData(new URL(image, url).href) : null };
 }
 function parseIngredient(s) { // repli sans IA
-  const m = /^\s*([\d.,/]+)\s*(g|kg|cl|ml|l|c\.? ?à ?[sc]\.?|cuill[^ ]*|pincées?|gousses?|boîtes?)?\s*(?:d['e ]\s*|de |du |des )?(.*)$/i.exec(s);
+  const m = /^\s*([\d.,/]+)\s*(?:(c\.? ?à ?[sc]\.?|cuill\S*(?: à \S+)?|pincées?|gousses?|boîtes?|sachets?|litres?|kg|mg|g|cl|ml|dl|l)(?=\s|$))?\s*(?:d['’]\s*|de |du |des )?(.*)$/i.exec(s);
   if (!m) return { q: 0, u: '', n: s };
   let q = m[1].includes('/') ? m[1].split('/').reduce((a, b) => a / b) : parseFloat(m[1].replace(',', '.'));
   return { q: q || 0, u: m[2] || '', n: m[3] || s };

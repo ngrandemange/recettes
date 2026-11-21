@@ -41,7 +41,7 @@ function parseIng(l, findRef) {
 }
 const ingLine = i => i.ref ? [i.q || '', '@' + i.n].filter(Boolean).join(' ') : [i.q || '', i.u, i.n].filter(Boolean).join(' ');
 const stepLine = s => [s.t, s.temp ? s.temp + '°C' : '', s.timer ? s.timer + ' min' + (s.kind === 'repos' ? ' repos' : '') : ''].filter((x, k) => k === 0 || x).join(' | ');
-const parseStep = l => { const [t, a, b] = l.split('|').map(x => x.trim()), s = { t }; [a, b].forEach(x => { if (!x) return; if (/°/.test(x)) s.temp = parseInt(x); else if (/\d/.test(x)) { s.timer = parseInt(x); s.kind = /repos/i.test(x) || /repos|frais/i.test(t) ? 'repos' : 'cuisson'; } }); return s; };
+const parseStep = l => { const [t, a, b] = l.split('|').map(x => x.trim()), s = { t }; [a, b].forEach(x => { if (!x) return; const n = parseInt(x); if (!(n > 0)) return; if (/°/.test(x)) s.temp = n; else { s.timer = n; s.kind = /repos/i.test(x) || /repos|frais/i.test(t) ? 'repos' : 'cuisson'; } }); return s; };
 
 // ---------- recettes de base réutilisables ----------
 // Remplace les lignes qui renvoient à une recette de base par ses ingrédients (facteur = nombre de « fournées »), récursivement.

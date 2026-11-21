@@ -12,5 +12,15 @@ const html = `<html><script type="application/ld+json">{"@context":"https://sche
   assert.equal(canonicalUrl('https://exemple.fr/'), 'https://exemple.fr/'); assert.equal(canonicalUrl('ftp://x'), null); assert.equal(canonicalUrl('pas une url'), null);
   for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.5', '172.20.0.1', '169.254.169.254', '100.64.0.1', '::1', 'fd00::1', '::ffff:10.0.0.1']) assert.ok(isPrivate(ip), ip + ' doit être refusée');
   for (const ip of ['8.8.8.8', '93.184.216.34', '172.32.0.1', '100.128.0.1']) assert.ok(!isPrivate(ip), ip + ' est publique');
+  // analyseur sans clé API : unités longues, pas de « g » arraché à « gousses »
+  const { parseIngredient: pI, fromJsonLd: fJ } = require('./import');
+  assert.deepEqual(pI("3 gousses d'ail"), { q: 3, u: 'gousses', n: 'ail' }); assert.deepEqual(pI('1 gros oignon'), { q: 1, u: '', n: 'gros oignon' });
+  assert.deepEqual(pI('2 litres de lait'), { q: 2, u: 'litres', n: 'lait' }); assert.deepEqual(pI('1 grosse courgette'), { q: 1, u: '', n: 'grosse courgette' }); assert.deepEqual(pI('200 g de farine'), { q: 200, u: 'g', n: 'farine' });
+  // instructions en une seule chaîne : une étape par ligne
+  assert.equal(fJ({ recipeInstructions: 'Etape un.\nEtape deux.\nEtape trois.' }).stepsRaw.length, 3);
+  assert.deepEqual(fJ({ recipeInstructions: [{ '@type': 'HowToStep', text: 'A.<br>B.' }] }).stepsRaw, ['A.', 'B.']);
+  // adresses mappées et plages spéciales
+  for (const ip of ['::ffff:7f00:1', '::ffff:a00:1', '[::1]', '198.18.0.1', '224.0.0.1', '192.0.0.8', '::', '64:ff9b::7f00:1', 'pas-une-ip']) assert.ok(isPrivate(ip), ip + ' doit être refusée');
+  for (const ip of ['::ffff:808:808', '2606:4700::1111']) assert.ok(!isPrivate(ip), ip + ' est publique');
   console.log('tests OK');
 })();

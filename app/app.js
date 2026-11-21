@@ -38,7 +38,7 @@ let LG = {}; // journal chargé à chaque affichage de la liste
 const F = { q: '', type: new Set(), diet: new Set(), diff: new Set(), method: new Set(), season: new Set(), coll: new Set(), protein: false, max: 360, fav: false, sort: 'rel' };
 const uniq = (key) => [...new Set(all().flatMap(r => [].concat(r[key] || [])))].sort();
 const nutriCache = new Map();
-const nutriOf = r => { const sig = JSON.stringify(r.ingredients).length + r.title; let c = nutriCache.get(r.id); if (!c || c.sig !== sig) { c = { sig, v: nutrition(r, byId) }; nutriCache.set(r.id, c); } return c.v; };
+const nutriOf = r => { const sig = JSON.stringify([r.title, r.servings, r.ingredients]); let c = nutriCache.get(r.id); if (!c || c.sig !== sig) { c = { sig, v: nutrition(r, byId) }; nutriCache.set(r.id, c); } return c.v; };
 function buildFilters() {
   const grp = (title, key, set, vals) => `<div class="fgroup"><h3>${title}</h3><div class="chips">${vals.map(v => `<button class="chip ${set.has(String(v.v)) ? 'on' : ''}" data-k="${key}" data-v="${esc(v.v)}">${esc(v.l)}</button>`).join('')}</div></div>`;
   $('#fbody').innerHTML =
@@ -65,7 +65,7 @@ $('#btnFilters').onclick = () => drawer(true); $('#fClose').onclick = () => draw
 let qt; $('#q').oninput = e => { clearTimeout(qt); qt = setTimeout(() => { F.q = e.target.value; if (location.hash !== '#/') location.hash = '#/'; else renderList(); }, 120); };
 
 const wordCache = new Map();
-function recipeWords(r) { const sig = r.title + '|' + r.ingredients.length + '|' + r.tags.length; let c = wordCache.get(r.id); if (!c || c.sig !== sig) { c = { sig, w: words([r.title, r.type, ...r.tags, ...r.ingredients.map(i => i.n)].join(' ')) }; wordCache.set(r.id, c); } return c.w; }
+function recipeWords(r) { const sig = JSON.stringify([r.title, r.type, r.tags, r.ingredients.map(i => i.n)]); let c = wordCache.get(r.id); if (!c || c.sig !== sig) { c = { sig, w: words([r.title, r.type, ...r.tags, ...r.ingredients.map(i => i.n)].join(' ')) }; wordCache.set(r.id, c); } return c.w; }
 function score(r, terms) {
   if (!terms.length) return 1;
   const title = norm(r.title), ing = norm(r.ingredients.map(i => i.n).join(' ')), rest = norm([r.type, ...r.diets, ...r.method, ...r.tags, DIFF[r.difficulty]].join(' ')), steps = norm(r.steps.map(s => s.t).join(' '));
@@ -191,7 +191,13 @@ async function clearPhoto(id) {
   if (serverMode) { await fetch('/api/recipes/' + id + '/photo', { method: 'DELETE' }); await reloadServer(); } else { delete photos[id]; store.set('photos', photos); }
 }
 function resizePhoto(file, m = 900) {
-  return new Promise(res => { const img = new Image(); img.onload = () => { const k = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8)); }; img.src = URL.createObjectURL(file); });
+  return new Promise((res, rej) => {
+    if (!file) return rej(new Error('Aucun fichier'));
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => { URL.revokeObjectURL(url); const k = Math.min(1, m / Math.max(img.width, img.height)), c = document.createElement('canvas'); c.width = img.width * k; c.height = img.height * k; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', .8)); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Image illisible : choisissez un fichier JPEG, PNG ou WebP')); };
+    img.src = url;
+  });
 }
 
 // ---------- minuteurs ----------
@@ -271,13 +277,15 @@ function openForm(edit) {
         const dl = $('#dup'); if (dl) dl.onclick = () => { m.hidden = true; }; }
       catch (e) { msg.textContent = '⚠️ ' + e.message; } };
     $('#igo').onclick = () => $('#iurl').value && imp('url', { url: $('#iurl').value }, 'Lecture de la page');
-    $('#iph').onchange = async e => { const d = await resizePhoto(e.target.files[0], 1600); imp('photo', { data: d.split(',')[1], mediaType: 'image/jpeg' }, 'Lecture de la photo'); };
+    $('#iph').onchange = async e => { let d; try { d = await resizePhoto(e.target.files[0], 1600); } catch (err) { $('#imsg').textContent = '⚠️ ' + err.message; return; } imp('photo', { data: d.split(',')[1], mediaType: 'image/jpeg' }, 'Lecture de la photo'); };
   }
   $('#nf').onsubmit = async e => {
     e.preventDefault(); const f = new FormData(e.target), list = k => f.get(k).split(',').map(x => x.trim()).filter(Boolean), lines = k => f.get(k).split('\n').map(l => l.trim()).filter(Boolean);
     const { total, photo: _p, ...base } = edit || {}, file = f.get('photo');
     const r = { ...base, id: edit ? edit.id : 'u' + Date.now(), title: f.get('title'), emoji: base.emoji || '🍽️', hue: base.hue ?? Math.floor(Math.random() * 360), type: f.get('type'), diets: list('diets'), difficulty: +f.get('difficulty'), prep: +f.get('prep'), cook: +f.get('cook'), rest: +f.get('rest'), method: list('method'), servings: +f.get('servings') || 1, tags: list('tags'), seasons: f.getAll('seasons'), collections: list('collections'), ingredients: lines('ing').map(l => parseIng(l, t => { const id = findRef(t); return id === (edit && edit.id) ? undefined : id; })), steps: lines('steps').map(parseStep) };
-    const newPhoto = file && file.size ? await resizePhoto(file, serverMode ? 1200 : 900) : importedPhoto ? await shrinkDataUrl(importedPhoto, serverMode ? 1200 : 900) : null;
+    let newPhoto = null;
+    try { newPhoto = file && file.size ? await resizePhoto(file, serverMode ? 1200 : 900) : importedPhoto ? await shrinkDataUrl(importedPhoto, serverMode ? 1200 : 900) : null; }
+    catch (err) { return alert(err.message); }
     try {
       if (serverMode) {
         const send = (url, method, b) => fetch(url, { method, body: JSON.stringify(b) }).then(x => { if (!x.ok) throw new Error('Erreur serveur'); return x.json(); });
@@ -285,7 +293,7 @@ function openForm(edit) {
         if (newPhoto) await setPhoto(r.id, newPhoto); else await reloadServer();
       } else {
         const orig = userRecipes.find(u => u.id === r.id); if (orig && orig.photo) r.photo = orig.photo; if (newPhoto) r.photo = newPhoto;
-        orig ? userRecipes[userRecipes.indexOf(orig)] = r : userRecipes.unshift(r); store.set('user', userRecipes);
+        orig ? userRecipes[userRecipes.indexOf(orig)] = r : userRecipes.unshift(r); store.set('user', userRecipes); nutriCache.clear(); wordCache.clear();
       }
     } catch (err) { return alert('Enregistrement impossible (hors-ligne ?) : ' + err.message); }
     m.hidden = true; buildFilters(); const h = '#/r/' + r.id; location.hash === h ? route() : (location.hash = h);
@@ -363,6 +371,7 @@ function openLog(r) {
 let wake = null;
 async function keepAwake(on) { try { if (on) wake = await navigator.wakeLock.request('screen'); else { await wake?.release(); wake = null; } } catch {} }
 function openCook(r, n) {
+  if (!r.steps || !r.steps.length) return toast('Cette recette n\'a pas encore d\'étapes : ajoutez-en avec « Modifier ».');
   let k = 0, ing = false; const last = r.steps.length - 1, el = document.createElement('div'); el.className = 'cook';
   document.body.append(el); document.body.classList.add('cooking'); keepAwake(true);
   const qty = i => i.q ? `<b>${fmtQty(i.q * n / r.servings)}</b> ` : '';
@@ -526,7 +535,7 @@ function syncDirty() { // renvoie au serveur ce qui a été modifié hors-ligne
   for (const k of SK) { try { const lv = localStorage.getItem('rec.' + k); if (localStorage.getItem('rec.dirty.' + k) && lv) store.set(k, cache[k] = JSON.parse(lv)); } catch {} }
 }
 addEventListener('online', () => serverMode && syncDirty());
-async function reloadServer() { serverRecipes = await (await fetch('/api/recipes')).json(); }
+async function reloadServer() { serverRecipes = await (await fetch('/api/recipes')).json(); nutriCache.clear(); wordCache.clear(); } // une recette de base modifiée change aussi celles qui l'utilisent
 (async () => {
   try { // le serveur est-il là ? sinon mode local (maquette statique)
     const r = await fetch('/api/recipes', { signal: AbortSignal.timeout(2000) });

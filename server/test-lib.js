@@ -47,4 +47,5 @@ assert.ok(!('2026-11-16_soir' in kept) && !Object.values(kept).flat().includes('
 const rated = L.suggestWeek({ recipes: rec, plan: {}, days: days.slice(0, 1), slots: ['soir'], stats: { 'chili-sin-carne': { last: '2026-01-01', avg: 5 } }, favs: new Set(['chili-sin-carne']), season: 'Hiver', maxWeek: 99, today: Date.parse('2026-11-16'), rng: () => 0 });
 assert.equal(Object.values(rated)[0][0], 'chili-sin-carne', 'préfère le mieux noté, de saison et favori');
 for (const [say, cmd] of [['Suivant', 'next'], ['étape suivante', 'next'], ['passe à la suite', 'next'], ['précédent', 'prev'], ['retour', 'prev'], ['répète', 'repeat'], ['relis-moi l\'étape', 'repeat'], ['lance le minuteur', 'timer'], ['les ingrédients', 'ingredients'], ['quitter', 'quit'], ['j\'ai terminé', 'finish'], ['bonjour', null], ['', null]]) assert.equal(L.voiceCommand(say), cmd, `« ${say} » -> ${cmd}`);
+assert.deepEqual(L.parseStep('Cuire | °C | 0 min'), { t: 'Cuire' }, 'valeurs vides ignorées');
 console.log('tests lib OK');
